@@ -1,56 +1,91 @@
-# request the raw text of The Great Gatsby
-import requests
 import re
+import requests
+import nltk
 
+nltk.download('punkt')
+
+
+# request the raw text of The Great Gatsby
 r = requests.get(r'https://www.gutenberg.org/cache/epub/64317/pg64317.txt')
 book_content = r.text
-    
-# you can also subset for the book text
-# (removing the project gutenburg introduction/footnotes)
-book_content = book_content[1433:277912]
 
-# print(great_gatsby)
-# processed_content_1 = great_gatsby.replace('\n\n', '@@PARAGRAPH_BREAK@@') # Temporarily mark real breaks
-# processed_content_1 = processed_content_1.replace('\n', ' ') # Replace all other newlines with a space
-# processed_content_1 = processed_content_1.replace('@@PARAGRAPH_BREAK@@', '\n\n').strip() # Restore real breaks and clean up
-# print("--- Approach 1 ---")
-# print(processed_content_1)
+def clean_text(file_path):
+    """
+    Reads a text file, removes mid-sentence line breaks, and preserves
+    paragraph breaks (indicated by two or more newlines).
 
+    Args:
+        file_path (str): The path to the input text file.
 
+    Returns:
+        str: The processed text with mid-sentence line breaks removed.
+    """
+    text = ""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            text = f.read()
+    except FileNotFoundError:
+        print(f"Error: The file '{file_path}' was not found.")
+        return ""
+    except Exception as e:
+        print(f"An error occurred while reading the file: {e}")
+        return ""
 
-# Pattern to find a newline that is NOT followed by a blank line or a sentence-starting character.
-# This assumes sentence-ending punctuation followed by a space or newline.
-# And also assumes new paragraphs often start with a capital letter or a quote.
+    # Step 1: Handle hyphenated word breaks (e.g., "senten-\nce")
+    # This removes the hyphen and the line break, joining the two parts of the word.
+    # Example: "some- \nthing" becomes "something"
+    # The \s* allows for optional whitespace around the hyphen and newline.
+    text = re.sub(r'(\w+)-\s*\n\s*(\w+)', r'\1\2', text)
 
-# A more sophisticated pattern:
-# We want to replace newlines that are:
-# 1. NOT followed by another newline (i.e., not a blank line)
-# 2. NOT preceded by a sentence-ending punctuation (.?!) and potentially a space.
-# 3. NOT followed by a capital letter (start of a new sentence/paragraph)
-# 4. NOT followed by a quotation mark (start of dialogue)
-
-# Let's try to replace a newline with a space if it's NOT followed by:
-#  - two or more newlines (\n{2,})
-#  - a capital letter [A-Z] (assuming new sentences start with capitals)
-#  - a quotation mark (["'])
-#  - an open parenthesis/bracket ([({])
-#  - a dash followed by a space (- ) often for lists or dialogue
-#
-# And also ensure it's not a newline right after sentence-ending punctuation.
-
-# Strategy: Replace newline followed by a lowercase letter or space
-# This is usually a good heuristic for mid-sentence breaks.
-processed_content_2 = re.sub(r'(?<![.!?;:])\n(?![ \n\t\r])', ' ', book_content) # Newline not preceded by sentence end, and not followed by blank space/newline
-processed_content_2 = re.sub(r'(\S)\s*\n([a-z])', r'\1 \2', processed_content_2) # Word \n lowercase letter -> Word lowercase letter
-processed_content_2 = re.sub(r'\s{2,}', ' ', processed_content_2).strip() # Replace multiple spaces with single space
-
-# A simpler, often effective regex:
-# Replace a newline that is not followed by another newline AND is not preceded by sentence-ending punctuation.
-# This pattern looks for a newline that is *not* part of a double newline AND is *not* immediately preceded by . ? ! ; :
-processed_content_2_simpler = re.sub(r'(?<![.!?;:])\n(?![\n\r\t ])', ' ', book_content)
-processed_content_2_simpler = re.sub(r'([a-zA-Z0-9])\n([a-zA-Z0-9])', r'\1 \2', processed_content_2_simpler) # Join word\nword
-processed_content_2_simpler = re.sub(r'\s{2,}', ' ', processed_content_2_simpler).strip()
+    # Step 2: Normalize sequences of two or more newlines to a single standard paragraph break placeholder.
+    # This ensures that actual paragraph breaks (blank lines or multiple newlines)
+    # are preserved and treated uniformly.
+    # Example: "\n\n", "\n  \n", "\n\n\n" all become 'PARAGRAPH_BREAK_PLACEHOLDER'
+    text = re.sub(r'\n\s*\n+', 'PARAGRAPH_BREAK_PLACEHOLDER', text)
 
 
-print("\n--- Approach 2 (Regex) ---")
-print(processed_content_2_simpler)
+    # Step 3: Replace any *remaining* single newlines with a space.
+    # At this point, any '\n' left in the text *should* be a mid-sentence line break
+    # because all paragraph breaks were converted to the placeholder in Step 2.
+    # We also strip leading/trailing whitespace around these single newlines to avoid
+    # extra spaces if the original had "word \n word".
+    text = re.sub(r'\s*\n\s*', ' ', text)
+
+
+    # Step 4: Restore the paragraph breaks from the placeholder.
+    text = text.replace('PARAGRAPH_BREAK_PLACEHOLDER', '\n\n')
+
+    # Step 5: Clean up any instances of multiple spaces that might have been introduced
+    # (e.g., if original text had "word  \n  word" it could become "word    word").
+    text = re.sub(r' {2,}', ' ', text).strip()
+
+    return text
+
+
+# Write the content to a file
+with open('my_book.txt', 'w', encoding='utf-8') as f:
+    f.write(book_content)
+
+
+# Define your input and output file paths
+input_book_path = 'my_book.txt' # Make sure this file exists with your book content
+output_cleaned_path = 'cleaned_book.txt'
+
+# Process the text
+cleaned_book_content = clean_text(input_book_path)
+
+# Export the processed text to the output file
+if cleaned_book_content: # Only export if the processing was successful
+    try:
+        with open(output_cleaned_path, 'w', encoding='utf-8') as output_file:
+            output_file.write(cleaned_book_content)
+        print(f"Successfully exported cleaned text to '{output_cleaned_path}'")
+    except IOError as e:
+        print(f"Error writing to file '{output_cleaned_path}': {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred during export: {e}")
+
+# Read and print the cleaned content to verify (optional)
+# with open(output_cleaned_path, 'r', encoding='utf-8') as f:
+#     print("\n--- Cleaned Content ---")
+#     print(f.read())
