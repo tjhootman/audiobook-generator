@@ -80,6 +80,11 @@ if cleaned_book_content: # Only export if the processing was successful
         with open(output_cleaned_path, 'w', encoding='utf-8') as output_file:
             output_file.write(cleaned_book_content)
         print(f"Successfully exported cleaned text to '{output_cleaned_path}'")
+
+        # --- COUNT AND OUTPUT CHARACTER COUNT ---
+        character_count = len(cleaned_book_content)
+        print(f"Character count (including spaces and newlines): {character_count}")
+        
     except IOError as e:
         print(f"Error writing to file '{output_cleaned_path}': {e}")
     except Exception as e:
