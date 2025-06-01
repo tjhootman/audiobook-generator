@@ -194,7 +194,6 @@ cython_debug/
 .cursorindexingignore
 
 # output files
-# *.txt
-*.mp3
+/output
 
 # Apple
