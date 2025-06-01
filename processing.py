@@ -1,9 +1,58 @@
+import os
 import re
+import requests
 import nltk
 from gtts import gTTS
 
 nltk.download('punkt')
 
+def get_user_book_url() -> str:
+    """
+    Prompts the user for a Project Gutenberg URL and validates it.
+
+    Returns:
+        The validated URL string.
+    """
+    while True:
+        user_url = input("Please enter the Project Gutenberg URL for the raw text of the book (e.g., https://www.gutenberg.org/cache/epub/76/pg76.txt): ")
+        if user_url.strip():
+            # Basic check for a plausible URL start, could be more robust with regex
+            if user_url.startswith("http://www.gutenberg.org") or user_url.startswith("https://www.gutenberg.org"):
+                return user_url
+            else:
+                print("Invalid URL format. Please enter a Project Gutenberg URL.")
+        else:
+            print("URL cannot be empty. Please try again.")
+
+def download_book_content(url: str) -> str | None:
+    """
+    Downloads the raw text content of a book from the given URL.
+
+    Args:
+        url: The URL of the book's raw text.
+
+    Returns:
+        The book content as a string if successful, None otherwise.
+    """
+    print(f"Attempting to download from: {url}")
+    try:
+        r = requests.get(url)
+        r.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
+        return r.text
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching URL: {e}")
+        print("Please ensure the URL is correct and accessible.")
+        return None
+
+def setup_output_directory(directory_path: str):
+    """
+    Creates the specified output directory if it doesn't exist.
+
+    Args:
+        directory_path: The path to the directory to create.
+    """
+    os.makedirs(directory_path, exist_ok=True)
+    print(f"Output directory '{directory_path}' ensured.")
 
 def get_book_title(text_content):
     """
@@ -37,6 +86,31 @@ def get_book_title(text_content):
             return sanitized_title if sanitized_title else default_title
             
     return default_title
+
+def export_raw_text(content: str, book_title: str, output_dir: str) -> str | None:
+    """
+    Exports the raw book content to a file.
+
+    Args:
+        content: The raw text content of the book.
+        book_title: The title of the book.
+        output_dir: The directory where the file should be saved.
+
+    Returns:
+        The full path to the raw output file if successful, None otherwise.
+    """
+    output_raw_path = os.path.join(output_dir, f"{book_title}_raw.txt")
+    try:
+        with open(output_raw_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        print(f"Successfully exported raw text to '{output_raw_path}'")
+        return output_raw_path
+    except IOError as e:
+        print(f"Error exporting raw text to '{output_raw_path}': {e}")
+        return None
+    except Exception as e:
+        print(f"An unexpected error occurred while exporting raw text: {e}")
+        return None
 
 def clean_text(file_path):
     """
@@ -103,39 +177,6 @@ def clean_text(file_path):
 
     return text
 
-
-def convert_text_to_speech_gtts(text_content, output_audio_file='output_book.mp3', lang='en'):
-    """
-    Converts text content to speech using gTTS and saves it as an MP3 file.
-
-    Args:
-        text_content (str): The text to convert to speech.
-        output_audio_file (str): The name of the output MP3 file.
-        lang (str): The language of the text (e.g., 'en' for English, 'fr' for French).
-    """
-    if not text_content:
-        print("No text content provided for speech conversion.")
-        return
-
-    print(f"Converting text to speech using gTTS (language: {lang})...")
-    try:
-        # Create a gTTS object
-        tts = gTTS(text=text_content, lang=lang, slow=False) # slow=True for slower speech
-
-        # Save the audio file
-        tts.save(output_audio_file)
-        print(f"Speech saved to '{output_audio_file}'")
-
-        # Optional: Play the audio file directly (requires a system command)
-        # On Windows: os.system(f"start {output_audio_file}")
-        # On macOS: os.system(f"afplay {output_audio_file}")
-        # On Linux: os.system(f"xdg-open {output_audio_file}") # or 'mpg321', 'vlc', etc.
-
-    except Exception as e:
-        print(f"An error occurred during gTTS conversion: {e}")
-        print("Please ensure you have an active internet connection.")
-
-# Export the processed text to the output file
 def export_cleaned_text(content: str, file_path: str) -> bool:
     """
     Exports the cleaned text content to a specified file path,
@@ -157,7 +198,6 @@ def export_cleaned_text(content: str, file_path: str) -> bool:
     print(f"Character count (including spaces and newlines): {character_count}")
 
     # Prepare the content to be written
-    # We add a newline after the count so the actual text starts on the next line
     content_to_write = f"Character Count: {character_count}\n\n{content}"
 
     try:
