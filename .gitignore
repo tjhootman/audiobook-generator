@@ -196,4 +196,7 @@ cython_debug/
 # output files
 /output
 
+# sensistive credenitals
+/credentials
+
 # Apple
