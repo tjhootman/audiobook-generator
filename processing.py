@@ -134,3 +134,47 @@ def convert_text_to_speech_gtts(text_content, output_audio_file='output_book.mp3
     except Exception as e:
         print(f"An error occurred during gTTS conversion: {e}")
         print("Please ensure you have an active internet connection.")
+
+# Export the processed text to the output file
+def export_cleaned_text(content: str, file_path: str) -> bool:
+    """
+    Exports the cleaned text content to a specified file path,
+    prepending the character count to the first line.
+
+    Args:
+        content: The cleaned text content to write.
+        file_path: The full path to the output file (e.g., './output/book_cleaned.txt').
+
+    Returns:
+        True if the export was successful, False otherwise.
+    """
+    if not content:
+        print("Warning: No cleaned content to export.")
+        return False
+
+    # Calculate character count of the actual content
+    character_count = len(content)
+    print(f"Character count (including spaces and newlines): {character_count}")
+
+    # Prepare the content to be written
+    # We add a newline after the count so the actual text starts on the next line
+    content_to_write = f"Character Count: {character_count}\n\n{content}"
+
+    try:
+        with open(file_path, 'w', encoding='utf-8') as output_file:
+            output_file.write(content_to_write)
+        print(f"Successfully exported cleaned text to '{file_path}'")
+        return True
+    except PermissionError:
+        print(f"Error: Permission denied to write to file '{file_path}'. "
+              f"Check file permissions or target directory.")
+    except IsADirectoryError:
+        print(f"Error: '{file_path}' is a directory. Cannot write to it as a file.")
+    except UnicodeEncodeError as e:
+        print(f"Error: Unable to encode text to UTF-8 for '{file_path}'. "
+              f"Details: {e}")
+    except IOError as e:
+        print(f"An I/O error occurred while writing to file '{file_path}': {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred during export: {e}")
+    return False

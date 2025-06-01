@@ -1,6 +1,6 @@
 import os
 import requests
-from processing import get_book_title, clean_text
+from processing import get_book_title, clean_text, export_cleaned_text
 
 # User Input for the URL
 while True:
@@ -46,32 +46,26 @@ output_audio_file_gtts = f"{output_directory}/{book_title}_audio_gtts.mp3"
 # Process the text
 cleaned_book_content = clean_text(input_file_path)
 
-# Export the processed text to the output file
-if cleaned_book_content: # Only export if the processing was successful
-    try:
-        with open(output_cleaned_path, 'w', encoding='utf-8') as output_file:
-            output_file.write(cleaned_book_content)
-        print(f"Successfully exported cleaned text to '{output_cleaned_path}'")
+if cleaned_book_content:
+    if export_cleaned_text(cleaned_book_content, output_cleaned_path):
+        # The character count is now handled inside the function,
+        # so we don't need to print it separately here.
+        pass # No need for the separate print statement for character count here
 
-        # Count characters and output
-        character_count = len(cleaned_book_content)
-        print(f"Character count (including spaces and newlines): {character_count}")
-
-        # Convert to speech using gTTS
-        # convert_text_to_speech_gtts(cleaned_book_content, output_audio_file_gtts, lang='en')
-
-    except PermissionError:
-        print(f"Error: Permission denied to write to file '{output_cleaned_path}'. "
-              f"Check file permissions or target directory.")
-    except IsADirectoryError:
-        print(f"Error: '{output_cleaned_path}' is a directory. Cannot write to it as a file.")
-    except UnicodeEncodeError as e:
-        print(f"Error: Unable to encode text to UTF-8 for '{output_cleaned_path}'. "
-              f"Details: {e}")
-    except IOError as e:
-        print(f"An I/O error occurred while writing to file '{output_cleaned_path}': {e}")
-    except Exception as e:
-        print(f"An unexpected error occurred during export: {e}")
+        # Convert to speech using gTTS (uncomment when ready and gTTS is installed)
+        # from gtts import gTTS
+        # def convert_text_to_speech_gtts(text, output_file, lang='en'):
+        #     try:
+        #         tts = gTTS(text=text, lang=lang, slow=False)
+        #         tts.save(output_file)
+        #         print(f"Successfully converted text to speech: '{output_file}'")
+        #     except Exception as e:
+        #         print(f"Error converting text to speech: {e}")
+        # # Note: If converting to speech, you might want to pass only the 'cleaned_book_content'
+        # # and not the 'content_to_write' which includes the character count line.
+        # # convert_text_to_speech_gtts(cleaned_book_content, output_audio_file_gtts, lang='en')
+else:
+    print("No cleaned content was generated. Skipping export.")
 
 # Read and print the cleaned content to verify (optional)
 # with open(output_cleaned_path, 'r', encoding='utf-8') as f:
