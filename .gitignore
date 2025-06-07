@@ -193,10 +193,12 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-# output files
+# input/output files
+/input
 /output
 
 # sensistive credenitals
 /credentials
 
 # Apple
+**/.DS_Store
