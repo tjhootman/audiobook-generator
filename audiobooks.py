@@ -1,6 +1,9 @@
+"""Main program for converting text files to audiobooks."""
+
 import os
-from processing import get_user_book_url, download_book_content, get_book_title
-from processing import setup_output_directory, export_raw_text, clean_text, export_cleaned_text
+from text_processing import get_user_book_url, download_book_content, get_book_title
+from text_processing import setup_output_directory, export_raw_text, clean_text, export_cleaned_text
+from text_to_speech import chunk_text, synthesize_audio_from_chunks, create_audiobook_chapter
 
 def main():
     """
@@ -38,7 +41,6 @@ def main():
     if cleaned_book_content:
         if export_cleaned_text(cleaned_book_content, output_cleaned_path):
             pass
-            # Convert speech to text function to be added here
     else:
         print("No cleaned content was generated. Skipping export.")
 
