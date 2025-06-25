@@ -1,3 +1,5 @@
+"""Module containing functions for processing text to speech."""
+
 import os
 import re # Import regular expression module
 from dotenv import load_dotenv
