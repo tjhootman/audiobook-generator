@@ -4,7 +4,6 @@ import os
 import re
 import requests
 import nltk
-from gtts import gTTS
 
 nltk.download('punkt')
 
@@ -65,29 +64,50 @@ def get_book_title(text_content):
         text_content (str): The input text content as a string.
 
     Returns:
-        str: The sanitized book title, or "unknown_book" if not found or an error occurs.
+        tuple: A tuple containing (raw_book_title, sanitized_book_title).
+               Returns ("unknown_book", "unknown_book") if not found or an error occurs.
     """
     default_title = "unknown_book"
     
     # Split the content into lines and iterate through them
-    # You can still limit the lines to check, e.g., first 15 lines
+    # Increased the limit slightly for robustness in case metadata is a bit further down
     lines = text_content.splitlines()
     for i, line in enumerate(lines):
-        if i >= 15:  # Stop after checking the first 15 lines
+        if i >= 20:  # Stop after checking the first 20 lines
             break
             
+        # Use re.match to find 'Title:' at the beginning of the stripped line
+        # re.IGNORECASE makes it case-insensitive
         match = re.match(r'Title:\s*(.*)', line.strip(), re.IGNORECASE)
         if match:
-            title = match.group(1).strip()
-            # Sanitize the title for filename use
-            # Remove characters that are invalid in filenames
-            # and replace spaces with underscores (optional, but good practice)
-            sanitized_title = re.sub(r'[\\/:*?"<>;,|]', '', title) # Invalid filename chars
-            sanitized_title = re.sub(r'\s+', '_', sanitized_title) # Replace spaces with underscores
-            sanitized_title = sanitized_title.strip('._') # Clean up leading/trailing underscores/dots
-            return sanitized_title if sanitized_title else default_title
+            raw_title = match.group(1).strip() # This is the title before any sanitization
             
-    return default_title
+            # If the extracted raw title is empty, return default titles for both
+            if not raw_title:
+                return (default_title, default_title)
+
+            # Sanitize the title for filename use
+            # Remove characters that are invalid in filenames for most OSes
+            # Windows invalid chars: \ / : * ? " < > |
+            # We also include ; , which are not strictly invalid but can cause issues.
+            sanitized_title = re.sub(r'[\\/:*?"<>|,;]', '', raw_title)
+
+            # Replace multiple spaces (or tabs, newlines) with a single underscore
+            sanitized_title = re.sub(r'\s+', '_', sanitized_title)
+
+            # Clean up leading/trailing underscores or dots that might be left
+            # from sanitization if the title started/ended with special chars or spaces
+            sanitized_title = sanitized_title.strip('._')
+
+            # Ensure the sanitized title is not empty after all operations.
+            # If it becomes empty, revert to default_title.
+            final_sanitized_title = sanitized_title if sanitized_title else default_title
+
+            # Return both the raw and the sanitized title as a tuple
+            return (raw_title, final_sanitized_title)
+            
+    # If no title is found after checking all lines, return default titles
+    return (default_title, default_title)
 
 def export_raw_text(content: str, book_title: str, output_dir: str) -> str | None:
     """
@@ -114,7 +134,7 @@ def export_raw_text(content: str, book_title: str, output_dir: str) -> str | Non
         print(f"An unexpected error occurred while exporting raw text: {e}")
         return None
 
-def clean_text(file_path):
+def clean_text(file_path, raw_title):
     """
     Reads a text file, removes mid-sentence line breaks, and preserves
     paragraph breaks (indicated by two or more newlines).
@@ -148,6 +168,28 @@ def clean_text(file_path):
     except Exception as e: # Catches any other unexpected errors during reading
         print(f"An unexpected error occurred while reading file '{file_path}': {e}")
         return ""
+
+    # Define the marker line
+    marker = f"*** START OF THE PROJECT GUTENBERG EBOOK {raw_title.upper()} ***"
+
+    # --- MODIFIED STEP: Remove text prior to AND including the marker ---
+    marker_index = text.find(marker)
+
+    if marker_index != -1:
+        # If the marker is found, keep only the text *after* the marker.
+        # This is done by starting the slice from marker_index + length of the marker.
+        # We also need to account for any newline characters immediately following the marker.
+        # Project Gutenberg files often have a newline right after the marker.
+        # Let's find the end of the marker line to ensure we start cleanly.
+        end_of_marker_line = text.find('\n', marker_index + len(marker))
+        if end_of_marker_line != -1:
+            text = text[end_of_marker_line + 1:].lstrip() # +1 to skip the newline, then lstrip to remove leading whitespace
+        else:
+            # If no newline found after the marker (unlikely for PG files but for robustness)
+            text = text[marker_index + len(marker):].lstrip()
+    else:
+        print(f"Warning: The marker '{marker}' was not found in '{file_path}'. "
+              f"Processing the entire file.")
 
     # Step 1: Handle hyphenated word breaks (e.g., "senten-\nce")
     # This removes the hyphen and the line break, joining the two parts of the word.
