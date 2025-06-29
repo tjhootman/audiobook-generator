@@ -1,77 +1,10 @@
 """Module containing functions for processing text to speech."""
 
 import os
-import re # Import regular expression module
 from dotenv import load_dotenv
 from google.cloud import texttospeech
 
 load_dotenv() # This loads the variables from .env into your script's environment
-
-def chunk_text_from_file(input_filepath, max_chars_per_chunk=4800):
-    """
-    Reads a text file and chunks its content into smaller pieces,
-    preferring to break at paragraph boundaries.
-    If a paragraph is too long, it will be broken by sentence.
-
-    Args:
-        input_filepath (str): The path to the input text file.
-        max_chars_per_chunk (int): The maximum number of characters allowed per chunk.
-
-    Returns:
-        list: A list of strings, where each string is a text chunk.
-    """
-    if not os.path.exists(input_filepath):
-        print(f"Error: Input file not found at {input_filepath}")
-        return []
-
-    try:
-        with open(input_filepath, "r", encoding="utf-8") as file:
-            text = file.read()
-    except Exception as e:
-        print(f"Error reading input file {input_filepath}: {e}")
-        return []
-
-    chunks = []
-    paragraphs = text.split('\n\n') # Split by double newline for paragraphs
-
-    current_chunk = ""
-    for para in paragraphs:
-        # Remove leading/trailing whitespace from paragraph
-        para = para.strip()
-        if not para:
-            continue
-
-        # If adding the next paragraph exceeds the limit AND there's something in current_chunk
-        # Add 2 for potential newlines when joining paragraphs
-        if len(current_chunk) + len(para) + 2 > max_chars_per_chunk and current_chunk:
-            chunks.append(current_chunk.strip())
-            current_chunk = ""
-
-        # If the paragraph itself is too long, break it down by sentences
-        if len(para) > max_chars_per_chunk:
-            # Split by sentence-ending punctuation followed by whitespace.
-            # Lookbehind `(?<=[.!?])` ensures the punctuation is kept with the sentence.
-            sentences = re.split(r'(?<=[.!?])\s+', para)
-            sentence_chunk = ""
-            for sentence in sentences:
-                if len(sentence_chunk) + len(sentence) + 1 > max_chars_per_chunk and sentence_chunk:
-                    chunks.append(sentence_chunk.strip())
-                    sentence_chunk = ""
-                # Add a space after each sentence to maintain natural spacing
-                sentence_chunk += sentence + " "
-            if sentence_chunk: # Add any remaining sentence chunk
-                chunks.append(sentence_chunk.strip())
-        else:
-            # Add paragraph to current chunk
-            if current_chunk:
-                current_chunk += "\n\n" + para
-            else:
-                current_chunk = para
-
-    if current_chunk: # Add any remaining text from the last current_chunk
-        chunks.append(current_chunk.strip())
-
-    return chunks
 
 def synthesize_audio_from_chunks(chunks, base_output_filename="output", chapter_num=1):
     """

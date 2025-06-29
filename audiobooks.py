@@ -3,7 +3,7 @@
 import os
 import re
 
-from text_processing import get_user_book_url, download_book_content, get_book_title, parse_chapters
+from text_processing import get_user_book_url, download_book_content, get_book_title, chunk_text_from_file
 from text_processing import setup_output_directory, export_raw_text, clean_text, export_cleaned_text
 
 # from speech_processing import create_audiobook_chapter

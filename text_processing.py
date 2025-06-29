@@ -203,14 +203,12 @@ def clean_text(file_path, raw_title):
     # Example: "\n\n", "\n  \n", "\n\n\n" all become 'PARAGRAPH_BREAK_PLACEHOLDER'
     text = re.sub(r'\n\s*\n+', 'PARAGRAPH_BREAK_PLACEHOLDER', text)
 
-
     # Step 3: Replace any *remaining* single newlines with a space.
     # At this point, any '\n' left in the text *should* be a mid-sentence line break
     # because all paragraph breaks were converted to the placeholder in Step 2.
     # We also strip leading/trailing whitespace around these single newlines to avoid
     # extra spaces if the original had "word \n word".
     text = re.sub(r'\s*\n\s*', ' ', text)
-
 
     # Step 4: Restore the paragraph breaks from the placeholder.
     text = text.replace('PARAGRAPH_BREAK_PLACEHOLDER', '\n\n')
@@ -263,119 +261,68 @@ def export_cleaned_text(content: str, file_path: str) -> bool:
         print(f"An unexpected error occurred during export: {e}")
     return False
 
-# Define common chapter patterns
-# Using re.IGNORECASE for case-insensitivity
-# Using re.MULTILINE to make ^ and $ match start/end of each line
-CHAPTER_PATTERNS = [
-    r"^(?:CHAPTER|Chapter)\s+(?:I|II|III|IV|V|VI|VII|VIII|IX|X|XI|XII|XIII|XIV|XV|XVI|XVII|XVIII|XIX|XX|XXI|XXII|XXIII|XXIV|XXV|XXVI|XXVII|XXVIII|XXIX|XXX)\b", # Roman numerals up to XXX
-    r"^(?:CHAPTER|Chapter)\s+\d+\b", # Arabic numerals
-    r"^(?:BOOK|Book)\s+(?:I|II|III|IV|V|VI|VII|VIII|IX|X)\b", # Books (for multi-book novels)
-    r"^(?:SECTION|Section)\s+\d+\b", # Sections
-    r"^(?:Part|PART)\s+(?:I|II|III|IV|V|VI|VII|VIII|IX|X|\d+)\b", # Parts
-    r"^\s*(?:I|II|III|IV|V|VI|VII|VIII|IX|X|XI|XII|XIII|XIV|XV|XVI|XVII|XVIII|XIX|XX|XXI|XXII|XXIII|XXIV|XXV|XXVI|XXVII|XXVIII|XXIX|XXX)\.?(?:\s+[\S].*)?$", # Roman numeral alone, possibly with a title on the same line
-    r"^\s*\d+\.?\s*(?:[A-Z].*)?$", # Arabic numeral alone, possibly with a title on the same line
-]
-
-# You'll need to define these if they are not in your text_processing.py
-# For demonstration purposes, I'll put a placeholder here.
-# In a real scenario, you would import these from your text_processing.py
-# from text_processing import clean_text, export_cleaned_text
-
-def parse_chapters(text_content):
+def chunk_text_from_file(input_filepath, max_chars_per_chunk=4800):
     """
-    Parses the full text content of a book to identify and extract chapters.
+    Reads a text file and chunks its content into smaller pieces,
+    preferring to break at paragraph boundaries.
+    If a paragraph is too long, it will be broken by sentence.
 
     Args:
-        text_content (str): The cleaned text content of the entire book.
+        input_filepath (str): The path to the input text file.
+        max_chars_per_chunk (int): The maximum number of characters allowed per chunk.
 
     Returns:
-        list[dict]: A list of dictionaries, where each dictionary represents a chapter
-                    and contains 'title' (e.g., "Chapter 1", "Preface"), and 'content'.
+        list: A list of strings, where each string is a text chunk.
     """
-    chapters = []
-    # Combine all patterns into a single regex for splitting.
-    # We use a capturing group around the pattern so that `re.split` includes
-    # the delimiter in the result, allowing us to capture the chapter title.
-    # Ensure the delimiter is preceded by at least two newlines to avoid splitting mid-paragraph.
-    # And followed by at least one newline for clear separation.
-    chapter_delimiter_pattern = r"(?:\n\n|^)(?P<chapter_title>(?:" + "|".join(CHAPTER_PATTERNS) + r"))(?:\n\n|\n|$)"
-    
-    # Split the text by the chapter patterns.
-    # re.split keeps the captured groups, so we get the chapter titles as part of the split.
-    parts = re.split(chapter_delimiter_pattern, text_content, flags=re.IGNORECASE | re.MULTILINE)
+    if not os.path.exists(input_filepath):
+        print(f"Error: Input file not found at {input_filepath}")
+        return []
 
-    # The first part is usually the front matter before the first actual chapter.
-    # The `re.split` behavior means if the pattern is at the very beginning,
-    # the first item in `parts` will be an empty string, then the captured group, then the content.
-    # If the first item is non-empty, it's considered "front matter".
+    try:
+        with open(input_filepath, "r", encoding="utf-8") as file:
+            text = file.read()
+    except Exception as e:
+        print(f"Error reading input file {input_filepath}: {e}")
+        return []
 
-    # Let's handle the initial non-chapter content (preface, introduction, etc.)
-    # The structure of `parts` after split will be:
-    # ['', 'Chapter 1', 'Content of Chapter 1', 'Chapter 2', 'Content of Chapter 2', ...]
-    # OR:
-    # ['Front Matter Content', 'Chapter 1', 'Content of Chapter 1', ...]
-    
-    current_chapter_title = "Front Matter / Introduction"
-    current_chapter_content_parts = []
-    
-    # `re.split` with a capturing group behaves differently based on matches.
-    # The pattern is: (delimiter)(content)(delimiter)(content)...
-    # When the delimiter is found, it splits the text, and the captured group for the delimiter is included.
-    # If the split pattern includes surrounding newlines, these might be consumed.
-    
-    # A more robust approach might be to find all matches, then extract content between them.
-    
-    # Find all chapter markers and their starting positions
-    chapter_markers = []
-    for match in re.finditer(chapter_delimiter_pattern, text_content, flags=re.IGNORECASE | re.MULTILINE):
-        # match.group('chapter_title') gets the text that matched one of the patterns
-        chapter_markers.append({
-            'start_index': match.start(),
-            'end_index': match.end(),
-            'title_text': match.group('chapter_title').strip()
-        })
+    chunks = []
+    paragraphs = text.split('\n\n') # Split by double newline for paragraphs
 
-    # If no chapters are found, treat the whole text as one chapter
-    if not chapter_markers:
-        chapters.append({
-            'title': "Full Text",
-            'content': text_content.strip()
-        })
-        return chapters
+    current_chunk = ""
+    for para in paragraphs:
+        # Remove leading/trailing whitespace from paragraph
+        para = para.strip()
+        if not para:
+            continue
 
-    # Process content before the first chapter
-    if chapter_markers[0]['start_index'] > 0:
-        front_matter_content = text_content[0:chapter_markers[0]['start_index']].strip()
-        if front_matter_content:
-            chapters.append({
-                'title': "Front Matter / Introduction",
-                'content': front_matter_content
-            })
+        # If adding the next paragraph exceeds the limit AND there's something in current_chunk
+        # Add 2 for potential newlines when joining paragraphs
+        if len(current_chunk) + len(para) + 2 > max_chars_per_chunk and current_chunk:
+            chunks.append(current_chunk.strip())
+            current_chunk = ""
 
-    # Process the main chapters
-    for i, marker in enumerate(chapter_markers):
-        start_of_chapter_content = marker['end_index']
-        end_of_chapter_content = None
-
-        if i + 1 < len(chapter_markers):
-            end_of_chapter_content = chapter_markers[i+1]['start_index']
+        # If the paragraph itself is too long, break it down by sentences
+        if len(para) > max_chars_per_chunk:
+            # Split by sentence-ending punctuation followed by whitespace.
+            # Lookbehind `(?<=[.!?])` ensures the punctuation is kept with the sentence.
+            sentences = re.split(r'(?<=[.!?])\s+', para)
+            sentence_chunk = ""
+            for sentence in sentences:
+                if len(sentence_chunk) + len(sentence) + 1 > max_chars_per_chunk and sentence_chunk:
+                    chunks.append(sentence_chunk.strip())
+                    sentence_chunk = ""
+                # Add a space after each sentence to maintain natural spacing
+                sentence_chunk += sentence + " "
+            if sentence_chunk: # Add any remaining sentence chunk
+                chunks.append(sentence_chunk.strip())
         else:
-            # Last chapter, goes to the end of the text
-            end_of_chapter_content = len(text_content)
+            # Add paragraph to current chunk
+            if current_chunk:
+                current_chunk += "\n\n" + para
+            else:
+                current_chunk = para
 
-        chapter_content = text_content[start_of_chapter_content:end_of_chapter_content].strip()
-        
-        # Clean up common Project Gutenberg headers/footers that might sneak into chapter content
-        chapter_content = re.sub(r'Project Gutenberg’s.*?\n', '', chapter_content, flags=re.IGNORECASE)
-        chapter_content = re.sub(r'Ebook of.*?\n', '', chapter_content, flags=re.IGNORECASE)
-        chapter_content = re.sub(r'[\s\S]*START OF THE PROJECT GUTENBERG EBOOK.*?\*\*\*[\s\S]*?\n', '', chapter_content, flags=re.IGNORECASE)
-        chapter_content = re.sub(r'[\s\S]*\*\*\* END OF THE PROJECT GUTENBERG EBOOK.*', '', chapter_content, flags=re.IGNORECASE | re.DOTALL)
+    if current_chunk: # Add any remaining text from the last current_chunk
+        chunks.append(current_chunk.strip())
 
-
-        if chapter_content: # Only add if there's actual content
-            chapters.append({
-                'title': marker['title_text'],
-                'content': chapter_content
-            })
-
-    return chapters
+    return chunks
