@@ -260,3 +260,72 @@ def export_cleaned_text(content: str, file_path: str) -> bool:
     except Exception as e:
         print(f"An unexpected error occurred during export: {e}")
     return False
+
+def chunk_text_from_file(input_filepath, max_chars_per_chunk=4800):
+    """
+    Reads a text file and chunks its content into smaller pieces,
+    preferring to break at paragraph boundaries.
+    If a paragraph is too long, it will be broken by sentence.
+
+    Args:
+        input_filepath (str): The path to the input text file.
+        max_chars_per_chunk (int): The maximum number of characters allowed per chunk.
+
+    Returns:
+        list: A list of strings, where each string is a text chunk.
+    """
+    if not os.path.exists(input_filepath):
+        print(f"Error: Input file not found at {input_filepath}")
+        return []
+
+    try:
+        with open(input_filepath, "r", encoding="utf-8") as file:
+            text = file.read()
+    except Exception as e:
+        print(f"Error reading input file {input_filepath}: {e}")
+        return []
+
+    chunks = []
+    paragraphs = text.split('\n\n')
+
+    current_chunk = ""
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+
+        # Ensure max_chars_per_chunk is an integer here as well,
+        # though the main fix is in generate_full_audiobook.
+        # This is a safeguard if this function were called directly with a string.
+        # It's good practice to ensure types at function boundaries.
+        try:
+            max_chars_per_chunk = int(max_chars_per_chunk)
+        except ValueError:
+            print(f"Warning: max_chars_per_chunk '{max_chars_per_chunk}' could not be converted to int. Using default 4800.")
+            max_chars_per_chunk = 4800
+
+
+        if len(current_chunk) + len(para) + 2 > max_chars_per_chunk and current_chunk:
+            chunks.append(current_chunk.strip())
+            current_chunk = ""
+
+        if len(para) > max_chars_per_chunk:
+            sentences = re.split(r'(?<=[.!?])\s+', para)
+            sentence_chunk = ""
+            for sentence in sentences:
+                if len(sentence_chunk) + len(sentence) + 1 > max_chars_per_chunk and sentence_chunk:
+                    chunks.append(sentence_chunk.strip())
+                    sentence_chunk = ""
+                sentence_chunk += sentence + " "
+            if sentence_chunk:
+                chunks.append(sentence_chunk.strip())
+        else:
+            if current_chunk:
+                current_chunk += "\n\n" + para
+            else:
+                current_chunk = para
+
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+
+    return chunks
