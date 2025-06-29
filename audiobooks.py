@@ -5,7 +5,7 @@ import os
 from text_processing import get_user_book_url, download_book_content, get_book_title
 from text_processing import setup_output_directory, export_raw_text, clean_text
 
-from speech_processing import generate_full_audiobook
+from audio_processing import generate_full_audiobook
 
 def main():
     """
