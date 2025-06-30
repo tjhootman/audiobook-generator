@@ -136,14 +136,18 @@ def export_raw_text(content: str, book_title: str, output_dir: str) -> str | Non
 
 def clean_text(file_path, raw_title):
     """
-    Reads a text file, removes mid-sentence line breaks, and preserves
-    paragraph breaks (indicated by two or more newlines).
+    Reads a text file, removes mid-sentence line breaks, preserves
+    paragraph breaks (indicated by two or more newlines), and removes
+    Project Gutenberg header and footer text.
 
     Args:
         file_path (str): The path to the input text file.
+        raw_title (str): The raw title of the book, used to construct
+                         the Project Gutenberg start and end markers.
 
     Returns:
-        str: The processed text with mid-sentence line breaks removed.
+        str: The processed text with mid-sentence line breaks removed
+             and Project Gutenberg boilerplate text excised.
     """
     text = ""
     try:
@@ -169,27 +173,37 @@ def clean_text(file_path, raw_title):
         print(f"An unexpected error occurred while reading file '{file_path}': {e}")
         return ""
 
-    # Define the marker line
-    marker = f"*** START OF THE PROJECT GUTENBERG EBOOK {raw_title.upper()} ***"
+    # Define the start and end marker lines
+    start_marker = f"*** START OF THE PROJECT GUTENBERG EBOOK {raw_title.upper()} ***"
+    # Note the non-breaking space in the end marker from your prompt: \xa0
+    end_marker = f"*** END OF THE PROJECT GUTENBERG EBOOK {raw_title.upper()} ***"
 
-    # --- MODIFIED STEP: Remove text prior to AND including the marker ---
-    marker_index = text.find(marker)
+    # --- Step 0: Remove text before and including the start marker ---
+    start_index = text.find(start_marker)
 
-    if marker_index != -1:
+    if start_index != -1:
         # If the marker is found, keep only the text *after* the marker.
-        # This is done by starting the slice from marker_index + length of the marker.
-        # We also need to account for any newline characters immediately following the marker.
-        # Project Gutenberg files often have a newline right after the marker.
-        # Let's find the end of the marker line to ensure we start cleanly.
-        end_of_marker_line = text.find('\n', marker_index + len(marker))
-        if end_of_marker_line != -1:
-            text = text[end_of_marker_line + 1:].lstrip() # +1 to skip the newline, then lstrip to remove leading whitespace
+        # Find the end of the start marker line to ensure we start cleanly.
+        end_of_start_marker_line = text.find('\n', start_index + len(start_marker))
+        if end_of_start_marker_line != -1:
+            # +1 to skip the newline, then lstrip to remove leading whitespace
+            text = text[end_of_start_marker_line + 1:].lstrip()
         else:
             # If no newline found after the marker (unlikely for PG files but for robustness)
-            text = text[marker_index + len(marker):].lstrip()
+            text = text[start_index + len(start_marker):].lstrip()
     else:
-        print(f"Warning: The marker '{marker}' was not found in '{file_path}'. "
-              f"Processing the entire file.")
+        print(f"Warning: The start marker '{start_marker}' was not found in '{file_path}'. "
+              f"Cannot remove initial boilerplate.")
+
+    # --- Step 0.5: Remove text after and including the end marker ---
+    end_index = text.find(end_marker)
+
+    if end_index != -1:
+        # If the end marker is found, keep only the text *before* the marker.
+        text = text[:end_index].rstrip() # rstrip to remove trailing whitespace before the marker
+    else:
+        print(f"Warning: The end marker '{end_marker}' was not found in '{file_path}'. "
+              f"Cannot remove final boilerplate.")
 
     # Step 1: Handle hyphenated word breaks (e.g., "senten-\nce")
     # This removes the hyphen and the line break, joining the two parts of the word.
@@ -219,10 +233,11 @@ def clean_text(file_path, raw_title):
 
     return text
 
+import os
+
 def export_cleaned_text(content: str, file_path: str) -> bool:
     """
-    Exports the cleaned text content to a specified file path,
-    prepending the character count to the first line.
+    Exports the cleaned text content to a specified file path.
 
     Args:
         content: The cleaned text content to write.
@@ -235,14 +250,19 @@ def export_cleaned_text(content: str, file_path: str) -> bool:
         print("Warning: No cleaned content to export.")
         return False
 
-    # Calculate character count of the actual content
+    # Calculate character count for informational purposes (still printed to console)
     character_count = len(content)
     print(f"Character count (including spaces and newlines): {character_count}")
 
-    # Prepare the content to be written
-    content_to_write = f"Character Count: {character_count}\n\n{content}"
+    # The content to write is now just the cleaned content itself
+    content_to_write = content
 
     try:
+        # Ensure the directory exists before attempting to write the file
+        output_dir = os.path.dirname(file_path)
+        if output_dir: # Only try to create if there's a directory part
+            os.makedirs(output_dir, exist_ok=True)
+
         with open(file_path, 'w', encoding='utf-8') as output_file:
             output_file.write(content_to_write)
         print(f"Successfully exported cleaned text to '{file_path}'")

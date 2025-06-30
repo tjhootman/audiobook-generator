@@ -55,13 +55,16 @@ def synthesize_audio_from_chunks(chunks, base_output_filename="output", start_pa
 
     return audio_file_paths
 
-def concatenate_audio_files(input_files, output_filename):
+def concatenate_audio_files(input_files, output_filename, silence_duration_ms=2000):
     """
-    Concatenates a list of MP3 audio files into a single MP3 file.
+    Concatenates a list of MP3 audio files into a single MP3 file,
+    inserting a specified duration of silence between each audio file.
 
     Args:
         input_files (list): A list of paths to the MP3 files to concatenate.
         output_filename (str): The path and filename for the concatenated output MP3.
+        silence_duration_ms (int): The duration of silence to insert between files, in milliseconds.
+                                   Defaults to 2000ms (2 seconds).
 
     Returns:
         str: The path to the concatenated audio file, or None if an error occurred.
@@ -70,14 +73,25 @@ def concatenate_audio_files(input_files, output_filename):
         print("No input files provided for concatenation.")
         return None
 
-    print(f"\nConcatenating {len(input_files)} audio files into {output_filename}...")
+    print(f"\nConcatenating {len(input_files)} audio files with {silence_duration_ms / 1000}s silence into {output_filename}...")
+
+    # Create an empty AudioSegment to start with
     combined_audio = AudioSegment.empty()
 
+    # Create a silence segment
+    silence = AudioSegment.silent(duration=silence_duration_ms)
+
     try:
-        for audio_file in input_files:
+        for i, audio_file in enumerate(input_files):
             if os.path.exists(audio_file):
-                segment = AudioSegment.from_mp3(audio_file)
-                combined_audio += segment
+                try:
+                    segment = AudioSegment.from_mp3(audio_file)
+                    combined_audio += segment
+                    # Add silence AFTER each segment, but NOT after the very last one
+                    if i < len(input_files) - 1:
+                        combined_audio += silence
+                except Exception as e:
+                    print(f"Error processing {audio_file}: {e}. Skipping this file.")
             else:
                 print(f"Warning: File not found, skipping: {audio_file}")
 
@@ -85,7 +99,7 @@ def concatenate_audio_files(input_files, output_filename):
         print(f"Successfully concatenated audio to: {output_filename}")
         return output_filename
     except Exception as e:
-        print(f"Error during audio concatenation: {e}")
+        print(f"Error during overall audio concatenation: {e}")
         return None
 
 def generate_full_audiobook(book_title, cleaned_book_content, cleaned_file_path, output_directory, max_chars_per_chunk=4800):
