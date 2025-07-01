@@ -202,3 +202,8 @@ cython_debug/
 
 # Apple
 **/.DS_Store
+
+# local
+*.mp3
+*.mp4
+*.png

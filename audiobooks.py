@@ -7,6 +7,15 @@ from text_processing import setup_output_directory, export_raw_text, clean_text
 
 from audio_processing import generate_full_audiobook
 
+from video_processing import create_video
+
+# For dummy file creation (if you're using it), you might need these
+try:
+    from pydub import AudioSegment
+except ImportError:
+    print("Pillow or Pydub not installed. Install with: pip install Pillow pydub")
+    print("You'll need to provide your own dummy files or install these libraries.")
+
 def main():
     """
     Orchestrates the process of downloading, cleaning, and converting book text to an audiobook.
@@ -47,8 +56,38 @@ def main():
     # We will use this cleaned file for the text-to-speech conversion.
     cleaned_file_path = os.path.join(output_directory, f"{book_title}_cleaned.txt")
 
-    # 8. Generate full audiobook from chunked files. 
+    # 8. Generate full audiobook from chunked files.
     generate_full_audiobook(book_title, cleaned_book_content, cleaned_file_path, output_directory)
+
+    # 9. Generate video of audiobook image and audio.
+    image_path = f"{book_title}.png"
+    dummy_image_path = "timeless_tales.png"
+    if not os.path.exists(image_path):
+        image_path = dummy_image_path
+        print(f"Using dummy image: {dummy_image_path}")
+        
+    audio_path = os.path.join(output_directory, f"{book_title}_full_audiobook.mp3")
+    dummy_audio_path = "./output/dummy_audiobook.mp3"
+    if not os.path.exists(audio_path):
+        try:
+            # Create a 5-second silent audio segment
+            silent_audio = AudioSegment.silent(duration=5000)
+            silent_audio.export(dummy_audio_path, format="mp3")
+            audio_path = dummy_audio_path
+            print(f"Created dummy audio: {dummy_audio_path}")
+        except NameError: # pydub.AudioSegment not imported
+            print("Pydub not installed. Cannot create dummy audio. Please install it: pip install pydub")
+            print("Or provide your own 'dummy_audio.mp3'.")
+            exit()
+        except Exception as e:
+            print(f"Error creating dummy audio: {e}. Make sure ffmpeg is installed and in your PATH.")
+            exit()
+
+    my_image = image_path
+    my_audio = audio_path
+    output_video = f"{book_title}_audiobook.mp4" # need to correct this to proper output location
+
+    create_video(my_image, my_audio, output_video)
 
 if __name__ == "__main__":
     main()
