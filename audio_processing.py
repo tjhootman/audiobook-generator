@@ -1,3 +1,5 @@
+"""Module containing functions for generating audio from text files."""
+
 import os
 import re
 from dotenv import load_dotenv

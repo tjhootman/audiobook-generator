@@ -61,7 +61,7 @@ def main():
 
     # 9. Generate video of audiobook image and audio.
     image_path = f"{book_title}.png"
-    dummy_image_path = "timeless_tales.png"
+    dummy_image_path = "narrated_classics.png"
     if not os.path.exists(image_path):
         image_path = dummy_image_path
         print(f"Using dummy image: {dummy_image_path}")
@@ -85,7 +85,7 @@ def main():
 
     my_image = image_path
     my_audio = audio_path
-    output_video = f"{book_title}_audiobook.mp4" # need to correct this to proper output location
+    output_video = os.path.join(output_directory, f"{book_title}_audiobook.mp4")
 
     create_video(my_image, my_audio, output_video)
 

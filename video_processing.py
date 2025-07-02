@@ -1,3 +1,5 @@
+"""Module containing functions for creating video from audiobooks."""
+
 import os
 from moviepy import ImageClip, AudioFileClip
 
@@ -27,7 +29,6 @@ def create_video(image_path, audio_path, output_video_path, fps=24):
         # This part remains the same.
         image_clip = ImageClip(image_path, duration=audio_clip.duration)
 
-        # *** CORRECTED LINE FOR MOVIEPY 2.x+ ***
         # Set the audio of the image clip by assigning to the .audio attribute
         image_clip.audio = audio_clip 
         
