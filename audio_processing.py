@@ -1,7 +1,10 @@
+"""Module containing functions for generating audio from text files."""
+
 import os
 import re
 from dotenv import load_dotenv
 from google.cloud import texttospeech
+from pydub import AudioSegment
 from text_processing import export_cleaned_text, chunk_text_from_file
 
 load_dotenv()
@@ -16,7 +19,7 @@ def synthesize_audio_from_chunks(chunks, base_output_filename="output", start_pa
         start_part_num (int): The starting part number for naming the files.
 
     Returns:
-        list: A list of paths to the generated audio files.
+        list: A list of paths to the generated individual audio files.
     """
     client = texttospeech.TextToSpeechClient()
     output_dir = "./output"
@@ -33,6 +36,7 @@ def synthesize_audio_from_chunks(chunks, base_output_filename="output", start_pa
     audio_file_paths = []
     current_part_num = start_part_num
     for i, chunk in enumerate(chunks):
+        # Using a temporary filename for individual parts, as they will be concatenated
         part_filename = f"{base_output_filename}_part{current_part_num}.mp3"
         full_output_path = os.path.join(output_dir, part_filename)
 
@@ -53,19 +57,66 @@ def synthesize_audio_from_chunks(chunks, base_output_filename="output", start_pa
 
     return audio_file_paths
 
+def concatenate_audio_files(input_files, output_filename, silence_duration_ms=2000):
+    """
+    Concatenates a list of MP3 audio files into a single MP3 file,
+    inserting a specified duration of silence between each audio file.
+
+    Args:
+        input_files (list): A list of paths to the MP3 files to concatenate.
+        output_filename (str): The path and filename for the concatenated output MP3.
+        silence_duration_ms (int): The duration of silence to insert between files, in milliseconds.
+                                   Defaults to 2000ms (2 seconds).
+
+    Returns:
+        str: The path to the concatenated audio file, or None if an error occurred.
+    """
+    if not input_files:
+        print("No input files provided for concatenation.")
+        return None
+
+    print(f"\nConcatenating {len(input_files)} audio files with {silence_duration_ms / 1000}s silence into {output_filename}...")
+
+    # Create an empty AudioSegment to start with
+    combined_audio = AudioSegment.empty()
+
+    # Create a silence segment
+    silence = AudioSegment.silent(duration=silence_duration_ms)
+
+    try:
+        for i, audio_file in enumerate(input_files):
+            if os.path.exists(audio_file):
+                try:
+                    segment = AudioSegment.from_mp3(audio_file)
+                    combined_audio += segment
+                    # Add silence AFTER each segment, but NOT after the very last one
+                    if i < len(input_files) - 1:
+                        combined_audio += silence
+                except Exception as e:
+                    print(f"Error processing {audio_file}: {e}. Skipping this file.")
+            else:
+                print(f"Warning: File not found, skipping: {audio_file}")
+
+        combined_audio.export(output_filename, format="mp3")
+        print(f"Successfully concatenated audio to: {output_filename}")
+        return output_filename
+    except Exception as e:
+        print(f"Error during overall audio concatenation: {e}")
+        return None
+
 def generate_full_audiobook(book_title, cleaned_book_content, cleaned_file_path, output_directory, max_chars_per_chunk=4800):
     """
-    Synthesizes the entire cleaned book content as a series of audiobook files.
+    Synthesizes the entire cleaned book content as a series of audiobook files,
+    then concatenates them into a single file.
 
     Args:
         book_title (str): The title of the book.
         cleaned_book_content (str): The entire cleaned text content of the book.
         cleaned_file_path (str): The path where the cleaned text is/should be exported.
-        output_directory (str): The directory to save the generated audio files. (This argument was missing in your original function signature,
-                                  but present in the main() call in the traceback)
+        output_directory (str): The directory to save the generated audio files.
         max_chars_per_chunk (int): Maximum characters per API request.
     """
-    
+
     try:
         max_chars_per_chunk = int(max_chars_per_chunk)
     except ValueError:
@@ -100,6 +151,7 @@ def generate_full_audiobook(book_title, cleaned_book_content, cleaned_file_path,
     # Sanitize book title for filename
     book_title_for_file = re.sub(r'[^\w\s-]', '', book_title).replace(' ', '_')[:50]
     base_output_name = f"{book_title_for_file}"
+    final_audiobook_name = os.path.join(output_directory, f"{book_title_for_file}_full_audiobook.mp3")
 
     print(f"\nSynthesizing: {book_title} (Full Book)")
 
@@ -112,13 +164,27 @@ def generate_full_audiobook(book_title, cleaned_book_content, cleaned_file_path,
 
     print(f"Text chunked into {len(chunks)} parts.")
 
-    # 2. Synthesize audio from the chunks
-    synthesized_audio_files = synthesize_audio_from_chunks(chunks, base_output_name, start_part_num=1)
+    # 2. Synthesize audio from the chunks (creates individual part files)
+    individual_audio_files = synthesize_audio_from_chunks(chunks, base_output_name, start_part_num=1)
 
-    if synthesized_audio_files:
-        print(f"Generated {len(synthesized_audio_files)} audio part(s) for '{book_title}'.")
-        print("All audio files for the full book are located in the './output/' directory.")
+    if individual_audio_files:
+        print(f"Generated {len(individual_audio_files)} individual audio part(s) for '{book_title}'.")
+
+        # 3. Concatenate the individual audio files
+        concatenated_file = concatenate_audio_files(individual_audio_files, final_audiobook_name)
+
+        if concatenated_file:
+            print(f"Full audiobook successfully created at: {concatenated_file}")
+            # Optionally, delete the individual part files after concatenation
+            for f in individual_audio_files:
+                try:
+                    os.remove(f)
+                    print(f"Removed temporary file: {f}")
+                except Exception as e:
+                    print(f"Error removing temporary file {f}: {e}")
+        else:
+            print(f"Failed to concatenate audio files for '{book_title}'. Individual parts remain in './output/'.")
     else:
-        print(f"Failed to generate audio for '{book_title}'.")
+        print(f"Failed to generate any audio parts for '{book_title}'.")
 
     print(f"\n--- Full Audiobook Generation Complete for '{book_title}' ---")
