@@ -109,6 +109,34 @@ def get_book_title(text_content):
     # If no title is found after checking all lines, return default titles
     return (default_title, default_title)
 
+def get_book_author(text_content):
+    """
+    Locates the "Author: " line in a string and extracts the book author.
+
+    Args:
+        text_content (str): The input text content as a string.
+
+    Returns:
+        str: The raw book author's name.
+             Returns "unknown_author" if not found or an error occurs.
+    """
+    default_author = "unknown_author"
+    
+    lines = text_content.splitlines()
+    for i, line in enumerate(lines):
+        if i >= 20:  # Stop after checking the first 20 lines
+            break
+            
+        match = re.match(r'Author:\s*(.*)', line.strip(), re.IGNORECASE)
+        if match:
+            raw_author = match.group(1).strip()
+            
+            # Return the raw author, or default if empty
+            return raw_author if raw_author else default_author
+            
+    # If no author is found, return the default
+    return default_author
+
 def export_raw_text(content: str, book_title: str, output_dir: str) -> str | None:
     """
     Exports the raw book content to a file.

@@ -1,20 +1,18 @@
 """Main program for converting text files to audiobooks."""
-
 import os
+from pydub import AudioSegment
 
 from text_processing import get_user_book_url, download_book_content, get_book_title
+from text_processing import get_book_author
 from text_processing import setup_output_directory, export_raw_text, clean_text
 
 from audio_processing import generate_full_audiobook
 
 from video_processing import create_video
 
-# For dummy file creation (if you're using it), you might need these
-try:
-    from pydub import AudioSegment
-except ImportError:
-    print("Pillow or Pydub not installed. Install with: pip install Pillow pydub")
-    print("You'll need to provide your own dummy files or install these libraries.")
+from image_generation import create_cover_image
+
+
 
 def main():
     """
@@ -34,13 +32,25 @@ def main():
         print("Book download failed. Exiting.")
         return
 
-    # 4. Locates the "Title: " line in a string and extracts the book title.
+    # 4a. Locates the "Title: " line in a string and extracts the book title.
     raw_book_title, book_title = get_book_title(book_content)
-    # book_title = get_book_title(book_content)
+    
     if not book_title: # Handle cases where title extraction might fail
         print("Could not detect book title. Using a generic title.")
         book_title = "untitled_book"
-    print(f"Detected Book Title: '{book_title}'")
+    print(f"Detected Book Title: '{raw_book_title}'")
+
+    # 4b.Locates the "Author: " line in a string and extracts the book author.
+    book_author = get_book_author(book_content)
+    if not book_author: # Handle cases where author extraction might fail
+        print("Could not detect book author. Using 'Unknown Author'.")
+    print(f"Detected Book Author: '{book_author}'")
+
+    # 9. Create cover image.
+    prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"
+    output_filename = f"{book_title}.png"
+
+    create_cover_image(prompt, output_directory, output_filename)
 
     # 5. Exports the raw book content to a file.
     raw_file_path = export_raw_text(book_content, book_title, output_directory)
@@ -59,13 +69,15 @@ def main():
     # 8. Generate full audiobook from chunked files.
     generate_full_audiobook(book_title, cleaned_book_content, cleaned_file_path, output_directory)
 
-    # 9. Generate video of audiobook image and audio.
-    image_path = f"{book_title}.png"
+
+
+    # 10. Generate video of audiobook image and audio.
+    image_path = os.path.join(output_directory, f"{book_title}.png")
     dummy_image_path = "narrated_classics.png"
     if not os.path.exists(image_path):
         image_path = dummy_image_path
         print(f"Using dummy image: {dummy_image_path}")
-        
+   
     audio_path = os.path.join(output_directory, f"{book_title}_full_audiobook.mp3")
     dummy_audio_path = "./output/dummy_audiobook.mp3"
     if not os.path.exists(audio_path):
