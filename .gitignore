@@ -207,5 +207,4 @@ cython_debug/
 *.mp3
 *.mp4
 *.png
-
-youtube_upload.py
+*.json

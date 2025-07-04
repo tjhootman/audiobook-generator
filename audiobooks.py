@@ -12,8 +12,6 @@ from video_processing import create_video
 
 from image_generation import create_cover_image
 
-
-
 def main():
     """
     Orchestrates the process of downloading, cleaning, and converting book text to an audiobook.
@@ -47,10 +45,10 @@ def main():
     print(f"Detected Book Author: '{book_author}'")
 
     # 9. Create cover image.
-    prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"
-    output_filename = f"{book_title}.png"
+    # prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"
+    # output_filename = f"{book_title}.png"
 
-    create_cover_image(prompt, output_directory, output_filename)
+    # create_cover_image(prompt, output_directory, output_filename)
 
     # 5. Exports the raw book content to a file.
     raw_file_path = export_raw_text(book_content, book_title, output_directory)
@@ -73,7 +71,7 @@ def main():
 
     # 10. Generate video of audiobook image and audio.
     image_path = os.path.join(output_directory, f"{book_title}.png")
-    dummy_image_path = "narrated_classics.png"
+    dummy_image_path = "./assets/narrated_classics.png"
     if not os.path.exists(image_path):
         image_path = dummy_image_path
         print(f"Using dummy image: {dummy_image_path}")

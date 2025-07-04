@@ -30,10 +30,10 @@ def create_video(image_path, audio_path, output_video_path, fps=24):
         image_clip = ImageClip(image_path, duration=audio_clip.duration)
 
         # Set the audio of the image clip by assigning to the .audio attribute
-        image_clip.audio = audio_clip 
+        image_clip.audio = audio_clip
         
         # The image_clip now has the audio attached. We can use it directly or rename it.
-        final_clip = image_clip 
+        final_clip = image_clip
 
         # Write the final video file
         # It's often good practice to specify an audio_codec for MP4 to ensure compatibility
