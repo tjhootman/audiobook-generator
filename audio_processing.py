@@ -1,9 +1,9 @@
-"""Module containing functions for generating audio from text files."""
-
 import os
 import re
+import time
 from dotenv import load_dotenv
 from google.cloud import texttospeech
+from google.api_core.exceptions import ResourceExhausted, InternalServerError
 from pydub import AudioSegment
 from text_processing import export_cleaned_text, chunk_text_from_file
 
@@ -12,6 +12,7 @@ load_dotenv()
 def synthesize_audio_from_chunks(chunks, base_output_filename="output", start_part_num=1):
     """
     Synthesizes speech from a list of text chunks and saves them as separate files.
+    Includes basic retry logic for rate limit and server errors.
 
     Args:
         chunks (list): A list of text strings, each representing a chunk.
@@ -35,25 +36,50 @@ def synthesize_audio_from_chunks(chunks, base_output_filename="output", start_pa
 
     audio_file_paths = []
     current_part_num = start_part_num
+
+    # Parameters for retry logic
+    max_retries = 5
+    initial_wait_time = 2 # seconds, for ResourceExhausted/InternalServerError
+
     for i, chunk in enumerate(chunks):
-        # Using a temporary filename for individual parts, as they will be concatenated
         part_filename = f"{base_output_filename}_part{current_part_num}.mp3"
         full_output_path = os.path.join(output_dir, part_filename)
 
-        synthesis_input = texttospeech.SynthesisInput(text=chunk)
+        attempts = 0
+        success = False
+        while attempts < max_retries:
+            try:
+                synthesis_input = texttospeech.SynthesisInput(text=chunk)
+                response = client.synthesize_speech(
+                    input=synthesis_input, voice=voice, audio_config=audio_config
+                )
 
-        try:
-            response = client.synthesize_speech(
-                input=synthesis_input, voice=voice, audio_config=audio_config
-            )
-            with open(full_output_path, "wb") as out:
-                out.write(response.audio_content)
-                print(f'Audio content written to file "{full_output_path}"')
-            audio_file_paths.append(full_output_path)
-        except Exception as e:
-            print(f"Error synthesizing part {current_part_num}: {e}")
-            continue
+                with open(full_output_path, "wb") as out:
+                    out.write(response.audio_content)
+                    print(f'Audio content written to file "{full_output_path}"')
+                audio_file_paths.append(full_output_path)
+                success = True
+                break  # Exit retry loop on success
+
+            except (ResourceExhausted, InternalServerError) as e:
+                attempts += 1
+                wait_time = initial_wait_time * (2 ** (attempts - 1)) # Exponential backoff
+                print(f"Rate limit or server error for part {current_part_num}. Attempt {attempts}/{max_retries}. Retrying in {wait_time:.1f} seconds...")
+                print(f"Error details: {e}")
+                time.sleep(wait_time)
+            except Exception as e:
+                # Catch any other unexpected errors
+                print(f"Unexpected error synthesizing part {current_part_num}: {e}")
+                success = False
+                break # Do not retry for other types of errors
+
+        if not success:
+            print(f"Failed to synthesize part {current_part_num} after {max_retries} attempts or due to unexpected error. Skipping this part.")
+
         current_part_num += 1
+        # Add a small, consistent delay between ALL requests, even successful ones
+        # This helps to stay below the average RPM.
+        time.sleep(0.1) # A base delay for all requests
 
     return audio_file_paths
 

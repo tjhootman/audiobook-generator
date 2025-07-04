@@ -261,8 +261,6 @@ def clean_text(file_path, raw_title):
 
     return text
 
-import os
-
 def export_cleaned_text(content: str, file_path: str) -> bool:
     """
     Exports the cleaned text content to a specified file path.
