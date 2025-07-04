@@ -193,11 +193,11 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-# input/output files
-/input
+# folders
+/assets
 /output
 
-# sensistive credenitals
+# sensitive credentials
 /credentials
 
 # Apple
@@ -208,3 +208,6 @@ cython_debug/
 *.mp4
 *.png
 *.json
+
+youtube_categories.py
+list.py

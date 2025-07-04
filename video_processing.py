@@ -26,7 +26,6 @@ def create_video(image_path, audio_path, output_video_path, fps=24):
         audio_clip = AudioFileClip(audio_path)
 
         # Create an image clip. The duration of the video will be the duration of the audio.
-        # This part remains the same.
         image_clip = ImageClip(image_path, duration=audio_clip.duration)
 
         # Set the audio of the image clip by assigning to the .audio attribute
