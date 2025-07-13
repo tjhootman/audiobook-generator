@@ -195,8 +195,8 @@ cython_debug/
 
 # folders
 /assets
-/output
 /audiobook_output
+/audiobook_to_youtube
 
 # sensitive credentials
 /credentials
@@ -209,11 +209,3 @@ cython_debug/
 *.mp4
 *.png
 *.json
-
-*youtube_categories.py
-*list.py
-*audiobook_to_yt.py
-*image_generation.py
-*video_processing.py
-*youtube_categories.py
-*youtube_upload.py
