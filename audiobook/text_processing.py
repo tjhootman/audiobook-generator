@@ -179,6 +179,7 @@ def clean_text(file_path, raw_title):
     Reads a text file, removes mid-sentence line breaks, preserves
     paragraph breaks (indicated by two or more newlines), and removes
     Project Gutenberg header and footer text.
+    Also replaces underscores with blank spaces.
 
     Args:
         file_path (str): The path to the input text file.
@@ -186,8 +187,9 @@ def clean_text(file_path, raw_title):
                          the Project Gutenberg start and end markers.
 
     Returns:
-        str: The processed text with mid-sentence line breaks removed
-             and Project Gutenberg boilerplate text excised.
+        str: The processed text with mid-sentence line breaks removed,
+             Project Gutenberg boilerplate text excised, and underscores
+             replaced with blank spaces.
     """
     text = ""
     try:
@@ -267,8 +269,15 @@ def clean_text(file_path, raw_title):
     # Step 4: Restore the paragraph breaks from the placeholder.
     text = text.replace('PARAGRAPH_BREAK_PLACEHOLDER', '\n\n')
 
+    # --- NEW STEP: Replace underscores with blank spaces ---
+    # This is placed after handling line breaks and before normalizing multiple spaces
+    # to ensure that an underscore followed by a line break (e.g., "word_\nword")
+    # is first handled by line break removal, then the underscore is replaced.
+    text = text.replace('_', ' ')
+
     # Step 5: Clean up any instances of multiple spaces that might have been introduced
     # (e.g., if original text had "word  \n  word" it could become "word    word").
+    # This also helps clean up any extra spaces introduced by replacing underscores.
     text = re.sub(r' {2,}', ' ', text).strip()
 
     return text

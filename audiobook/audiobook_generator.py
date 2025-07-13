@@ -84,7 +84,7 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     detected_language_code = analyze_language(cleaned_text_content)
     print(f"Overall Detected Language: {detected_language_code}")
 
-    # --- NEW: Analyze regional context ---
+    # Analyze regional context
     regional_code_from_text = None
     if detected_language_code == "en": # Only try for English
         print("Analyzing text for regional English context (US vs. GB)...")
