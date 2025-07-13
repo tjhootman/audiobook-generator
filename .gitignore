@@ -209,5 +209,11 @@ cython_debug/
 *.png
 *.json
 
-youtube_categories.py
-list.py
+*youtube_categories.py
+*list.py
+*audiobook_to_yt.py
+*image_generation.py
+*video_processing.py
+*youtube_categories.py
+*youtube_upload.py
+*my_story.txt
