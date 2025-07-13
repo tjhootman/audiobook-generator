@@ -144,12 +144,13 @@ The script will then proceed to:
 
 ```
 .
-├── audiobook_generator.py      # Main orchestration script for audiobook generation
-├── audio_analysis.py           # Functions for text analysis and TTS voice selection
-├── text_processing.py          # Functions for downloading, cleaning, and chunking text
-├── requirements.txt            # Python dependencies
-└── audiobook_output/           # (Automatically created) Output directory
-    └── Your_Book_Title/        # Dedicated directory for each generated audiobook
+└── audiobook/ 
+    ├── audiobook_generator.py      # Main orchestration script for audiobook generation
+    ├── audio_analysis.py           # Functions for text analysis and TTS voice selection
+    ├── text_processing.py          # Functions for downloading, cleaning, and chunking text
+    ├── requirements.txt            # Python dependencies
+└── audiobook_output/               # (Automatically created) Output directory
+    └── Your_Book_Title/            # Dedicated directory for each generated audiobook
         ├── Your_Book_Title_raw.txt      # Raw downloaded text
         ├── Your_Book_Title_cleaned.txt  # Cleaned text
         ├── Your_Book_Title_audiobook.mp3 # Final combined audiobook
