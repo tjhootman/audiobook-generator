@@ -5,7 +5,19 @@ import re
 import requests
 import nltk
 
-nltk.download('punkt')
+# Ensure 'punkt' and 'punkt_tab' tokenizers are downloaded
+# Catch LookupError, as that's what nltk.data.find() raises when resource is not found.
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError: # Corrected exception type
+    print("Downloading NLTK 'punkt' tokenizer data...")
+    nltk.download('punkt')
+
+try:
+    nltk.data.find('tokenizers/punkt_tab')
+except LookupError: # Corrected exception type
+    print("Downloading NLTK 'punkt_tab' tokenizer data...")
+    nltk.download('punkt_tab') # This is the download that was explicitly requested by NLTK's error message
 
 def setup_output_directory(directory_path: str):
     """

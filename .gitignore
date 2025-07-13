@@ -196,6 +196,7 @@ cython_debug/
 # folders
 /assets
 /output
+/audiobook_output
 
 # sensitive credentials
 /credentials
@@ -216,4 +217,3 @@ cython_debug/
 *video_processing.py
 *youtube_categories.py
 *youtube_upload.py
-*my_story.txt
