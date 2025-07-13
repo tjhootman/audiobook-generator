@@ -2,7 +2,7 @@ import os
 from pydub import AudioSegment
 
 # Import functions from analysis module
-from audiobook.audio_analysis import (
+from audio_analysis import (
     get_available_tts_voices,
     analyze_language,
     analyze_sentiment,
