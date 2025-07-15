@@ -196,6 +196,7 @@ cython_debug/
 # folders
 /assets
 /audiobook_output
+/audiobook_output_gui
 /audiobook_to_youtube
 
 # sensitive credentials
