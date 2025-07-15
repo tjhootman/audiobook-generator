@@ -47,7 +47,7 @@ from text_processing import (
 # --- Application-wide Configuration ---
 # Base directory where all generated audiobook files will be stored.
 # This directory will be created if it doesn't exist.
-OUTPUT_BASE_DIR = "audiobook_output_gui"
+OUTPUT_BASE_DIR = "audiobook_output"
 # Maximum number of characters per text chunk sent to the Text-to-Speech API.
 # This adheres to API limits and optimizes synthesis. Google Cloud TTS has a 5000 character limit per request.
 MAX_CHARS_PER_TTS_CHUNK = 4800
