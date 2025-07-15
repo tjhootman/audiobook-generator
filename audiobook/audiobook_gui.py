@@ -81,6 +81,23 @@ class AudiobookApp:
         master.geometry("600x550") # Sets the initial width and height of the window.
         master.resizable(False, False) # Prevents the user from resizing the window.
 
+        # --- ADD ICON HERE ---
+        try:
+            # Set icon path. 
+            # Assuming app_icon.png is in assets folder. Update to your appropriate file structure.
+            icon_path = os.path.join("assets", "app_icon.png")
+            if os.path.exists(icon_path):
+                # Create a PhotoImage object
+                self.app_icon = tk.PhotoImage(file=icon_path)
+                # Set the window icon. True means it replaces default icons.
+                master.iconphoto(True, self.app_icon)
+            else:
+                print(f"Warning: Icon file not found at {icon_path}")
+        except Exception as e:
+            print(f"Error setting application icon: {e}")
+        # --- END ICON ADDITION ---
+
+
         # --- GUI Widgets Setup ---
 
         # 1. Title Label
