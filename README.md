@@ -145,7 +145,8 @@ The script will then proceed to:
 ```
 .
 └── audiobook/ 
-    ├── audiobook_generator.py      # Main orchestration script for audiobook generation
+    ├── audiobook_cli.py            # CLI orchestration script for audiobook generation
+    ├── audiobook_gui.py            # GUI application for audiobook generation
     ├── audio_analysis.py           # Functions for text analysis and TTS voice selection
     ├── text_processing.py          # Functions for downloading, cleaning, and chunking text
     ├── requirements.txt            # Python dependencies
