@@ -92,20 +92,10 @@ Before running this application, you'll need:
     google-ai-generativelanguage==0.6.15
     google-api-core==2.24.2
     google-auth==2.40.2
-    google-cloud-aiplatform==1.101.0
-    google-cloud-bigquery==3.34.0
-    google-cloud-core==2.4.3
     google-cloud-language==2.17.2
-    google-cloud-resource-manager==1.14.2
-    google-cloud-storage==2.19.0
     google-cloud-texttospeech==2.27.0
-    google-genai==1.24.0
     google-generativeai==0.8.5
-    google-resumable-media==2.7.2
     googleapis-common-protos==1.70.0
-    grpc-google-iam-v1==0.14.2
-    ffmpeg==1.4
-    ffmpeg-python==0.2.0
     nltk==3.9.1
     protobuf==5.29.5
     pydub==0.25.1
