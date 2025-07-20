@@ -19,12 +19,6 @@ except LookupError:
     print("Downloading NLTK 'punkt' tokenizer data...")
     nltk.download('punkt')
 
-try:
-    nltk.data.find('tokenizers/punkt_tab')
-except LookupError:
-    print("Downloading NLTK 'punkt_tab' tokenizer data...")
-    nltk.download('punkt_tab')
-
 def setup_output_directory(directory_path: str):
     """
     Creates the specified output directory if it does not already exist.
