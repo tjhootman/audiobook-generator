@@ -209,3 +209,4 @@ cython_debug/
 *.mp4
 *.png
 *.json
+google_tts_english_voices.txt
