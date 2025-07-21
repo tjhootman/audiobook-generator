@@ -28,6 +28,8 @@ from text_processing import (
     chunk_text_from_file        # Splits the text into smaller chunks suitable for TTS API.
 )
 
+from image_generation import create_cover_image
+
 # --- Main orchestration function ---
 def generate_full_audiobook(output_base_dir="audiobook_output"):
     """
@@ -91,6 +93,12 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     if not export_cleaned_text(cleaned_text_content, cleaned_text_filepath):
         print("Failed to export cleaned text. Exiting.")
         return
+    
+    # 8. Create cover image.
+    prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"
+    output_filename = f"{raw_book_title}.png"
+
+    create_cover_image(prompt, book_output_dir, output_filename)
 
     # --- Audiobook Generation Logic Starts Here ---
     print("\n--- Audiobook Generation ---")

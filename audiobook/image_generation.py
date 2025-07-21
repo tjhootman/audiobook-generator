@@ -5,9 +5,24 @@ import os
 from PIL import Image
 from google import genai
 from google.genai import types
+import google
+from google.cloud import aiplatform
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# this try-except block can eventually be removed in production
+try:
+    credentials, project = google.auth.default()
+    print(f"DEBUG: Authenticating as {credentials.service_account_email if hasattr(credentials, 'service_account_email') else credentials.quota_project_id} for project {project}")
+    print(f"DEBUG: Credentials type: {type(credentials)}")
+    print(f"DEBUG: Credentials scopes: {credentials.scopes if hasattr(credentials, 'scopes') else 'N/A'}")
+    # Ensure the project passed to the client matches the detected project
+    aiplatform.init(project=project, location='us-east5')
+    # ... rest of your image generation code
+except Exception as e:
+    print(f"Authentication/Initialization error: {e}")
+    raise # Re-raise to see the full traceback
 
 def create_cover_image(prompt: str, output_directory: str, output_filename: str):
     """
