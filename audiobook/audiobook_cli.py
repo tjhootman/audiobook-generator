@@ -28,7 +28,11 @@ from text_processing import (
     chunk_text_from_file        # Splits the text into smaller chunks suitable for TTS API.
 )
 
+# Import function for image creation.
 from image_generation import create_cover_image
+
+# Import function for video creation.
+from video_processing import create_video
 
 # --- Main orchestration function ---
 def generate_full_audiobook(output_base_dir="audiobook_output"):
@@ -96,9 +100,9 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     
     # 8. Create cover image.
     prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"
-    output_filename = f"{raw_book_title}.png"
+    output_image_file = f"{sanitized_book_title}.png"
 
-    create_cover_image(prompt, book_output_dir, output_filename)
+    create_cover_image(prompt, book_output_dir, output_image_file)
 
     # --- Audiobook Generation Logic Starts Here ---
     print("\n--- Audiobook Generation ---")
@@ -240,6 +244,10 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     os.rmdir(temp_audio_dir)
     print("Cleaned up temporary audio files.")
 
+    # 20. Create video for audiobook.
+    output_video_file = os.path.join(book_output_dir, f"{sanitized_book_title}_audiobook.mp4")
+    output_image_path = os.path.join(book_output_dir, output_image_file)
+    create_video(output_image_path, output_audio_file, output_video_file, None, 24)
 
 if __name__ == "__main__":
     # Entry point of the script when executed directly.
