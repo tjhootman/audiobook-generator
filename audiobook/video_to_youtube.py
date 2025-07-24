@@ -1,12 +1,13 @@
 """Main program for uploading a video to YouTube."""
 from youtube_upload import upload_youtube_video
+import os
 
 def main():
     """Orchestrates the process of uploading video to YouTube."""
 
-    output_video = ""
-    raw_book_title = ""
-    book_author = ""
+    output_video = "audiobook_output/In_our_time/In_our_time_audiobook.mp4"
+    raw_book_title = "In Our Time"
+    book_author = "Ernest Hemingway"
 
     # 1. Upload video to YouTube Channel
 
