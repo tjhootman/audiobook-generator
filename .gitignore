@@ -197,6 +197,7 @@ cython_debug/
 /assets
 /audiobook_output
 /audiobook_to_youtube
+/archive
 
 # sensitive credentials
 /credentials
