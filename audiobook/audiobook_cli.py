@@ -28,6 +28,15 @@ from text_processing import (
     chunk_text_from_file        # Splits the text into smaller chunks suitable for TTS API.
 )
 
+# Import function for image creation.
+from image_generation import create_cover_image
+
+# Import function for video creation.
+from video_processing import create_video
+
+# Import function for uploading video to YouTube.
+from youtube_upload import upload_youtube_video
+
 # --- Main orchestration function ---
 def generate_full_audiobook(output_base_dir="audiobook_output"):
     """
@@ -45,24 +54,58 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     # Ensure the base output directory exists.
     setup_output_directory(output_base_dir)
 
-    # 2. Get Book URL
-    # Prompt the user to enter the URL of the Project Gutenberg book.
-    book_url = get_user_book_url()
-    if not book_url:
-        print("No URL provided. Exiting.")
-        return
+    # 2. Select Book Source (Text file or URL)
+    print("Book source:")
+    print("1 - Project Gutenberg URL")
+    print("2 - Local TXT File")
+    
+    book_source_choice = (input("Choice: ")).strip().lower()
 
-    # 3. Download Book Content
-    # Fetch the raw text content from the provided URL.
-    raw_text_content = download_book_content(book_url)
-    if not raw_text_content:
-        print("Failed to download book content. Exiting.")
-        return
+    book_content = None
+    sanitized_book_title = None
+    book_author = None
+    raw_book_title = None
 
-    # 4. Extract Book Metadata
-    # Get the book title and author from the downloaded content.
-    raw_book_title, sanitized_book_title = get_book_title(raw_text_content)
-    book_author = get_book_author(raw_text_content)
+    if book_source_choice == '1':
+        # 3. Get Book URL
+        # Prompt the user to enter the URL of the Project Gutenberg book.
+        book_url = get_user_book_url()
+        if not book_url:
+            print("No URL provided. Exiting.")
+            return
+
+        # 4. Download Book Content
+        # Fetch the raw text content from the provided URL.
+        raw_text_content = download_book_content(book_url)
+        if not raw_text_content:
+            print("Failed to download book content. Exiting.")
+            return
+
+        # 5. Extract Book Metadata
+        # Get the book title and author from the downloaded content.
+        raw_book_title, sanitized_book_title = get_book_title(raw_text_content)
+        book_author = get_book_author(raw_text_content)
+        book_content = raw_text_content
+
+    elif book_source_choice == '2':
+        print("Local TXT file option selected.")
+        local_file_path = input("Enter the path to your local TXT file: ")
+        try:
+            with open(local_file_path, 'r', encoding='utf-8') as f:
+                book_content = f.read()
+            sanitized_book_title = os.path.splitext(os.path.basename(local_file_path))[0]
+            raw_book_title = sanitized_book_title # For local files, raw and sanitized might be the same
+            book_author = "Unknown" # Or prompt user for author
+        except FileNotFoundError:
+            print(f"Error: File not found at {local_file_path}. Exiting.")
+            return
+        except Exception as e:
+            print(f"Error reading local file: {e}. Exiting.")
+            return
+    else:
+        print("Invalid choice. Exiting.")
+        return
+ 
     print(f"Detected Title: {raw_book_title}")
     print(f"Detected Author: {book_author}")
 
@@ -72,7 +115,7 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
 
     # 5. Export Raw Text
     # Save the initially downloaded raw text content.
-    raw_text_filepath = export_raw_text(raw_text_content, sanitized_book_title, book_output_dir)
+    raw_text_filepath = export_raw_text(book_content, sanitized_book_title, book_output_dir)
     if not raw_text_filepath:
         print("Failed to export raw text. Exiting.")
         return
@@ -232,6 +275,40 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     os.rmdir(temp_audio_dir)
     print("Cleaned up temporary audio files.")
 
+    # 19. Create cover image.
+    prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"
+    output_image_file = f"{sanitized_book_title}.png"
+
+    create_cover_image(prompt, book_output_dir, output_image_file)
+
+    # 20. Create video for audiobook.
+    output_video_file = os.path.join(book_output_dir, f"{sanitized_book_title}_audiobook.mp4")
+    output_image_path = os.path.join(book_output_dir, output_image_file)
+    create_video(output_image_path, output_audio_file, output_video_file, None, 24)
+
+    #21. Upload video to YouTube Channel
+    video_file = output_video_file
+    video_title = f"{raw_book_title} Audiobook"
+    video_description = f"Audiobook version of '{raw_book_title}' by {book_author}."
+    video_tags = ["audiobook", "book", "literature", "classic"]
+    video_privacy = "public" # Can be "public", "private", or "unlisted"
+
+    uploaded_video_info = upload_youtube_video(
+        file_path=video_file,
+        title=video_title,
+        description=video_description,
+        tags=video_tags,
+        privacy_status=video_privacy
+    )
+
+    if uploaded_video_info:
+        print("\nUpload complete. Video details:")
+        print(f"Title: {uploaded_video_info['snippet']['title']}")
+        print(f"Description: {uploaded_video_info['snippet']['description']}")
+        print(f"Privacy Status: {uploaded_video_info['status']['privacyStatus']}")
+        print(f"Video ID: {uploaded_video_info['id']}")
+    else:
+        print("\nVideo upload failed.")
 
 if __name__ == "__main__":
     # Entry point of the script when executed directly.
