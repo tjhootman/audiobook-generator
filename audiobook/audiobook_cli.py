@@ -17,15 +17,14 @@ from audio_analysis import (
 
 # Import functions related to text processing and book content handling from the 'text_processing' module.
 from text_processing import (
-    setup_output_directory,     # Creates the output directory structure.
-    get_user_book_url,          # Prompts the user for a Project Gutenberg book URL.
-    download_book_content,      # Downloads the raw text content of the book.
-    get_book_title,             # Extracts the title from the book content.
-    get_book_author,            # Extracts the author from the book content.
-    export_raw_text,            # Saves the raw downloaded text to a file.
-    clean_text,                 # Cleans the raw text (removes boilerplate, formatting).
-    export_cleaned_text,        # Saves the cleaned text to a file.
-    chunk_text_from_file        # Splits the text into smaller chunks suitable for TTS API.
+    GutenbergSource,
+    GutenbergCleaner,
+    FileTextExporter,
+    DefaultTextChunker,
+    get_user_book_url,
+    get_book_title,
+    get_book_author,
+    setup_output_directory
 )
 
 # Import function for image creation.
@@ -54,57 +53,30 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     # Ensure the base output directory exists.
     setup_output_directory(output_base_dir)
 
-    # 2. Select Book Source (Text file or URL)
-    print("Book source:")
-    print("1 - Project Gutenberg URL")
-    print("2 - Local TXT File")
-    
-    book_source_choice = (input("Choice: ")).strip().lower()
-
     book_content = None
     sanitized_book_title = None
     book_author = None
     raw_book_title = None
 
-    if book_source_choice == '1':
-        # 3. Get Book URL
-        # Prompt the user to enter the URL of the Project Gutenberg book.
-        book_url = get_user_book_url()
-        if not book_url:
-            print("No URL provided. Exiting.")
-            return
-
-        # 4. Download Book Content
-        # Fetch the raw text content from the provided URL.
-        raw_text_content = download_book_content(book_url)
-        if not raw_text_content:
-            print("Failed to download book content. Exiting.")
-            return
-
-        # 5. Extract Book Metadata
-        # Get the book title and author from the downloaded content.
-        raw_book_title, sanitized_book_title = get_book_title(raw_text_content)
-        book_author = get_book_author(raw_text_content)
-        book_content = raw_text_content
-
-    elif book_source_choice == '2':
-        print("Local TXT file option selected.")
-        local_file_path = input("Enter the path to your local TXT file: ")
-        try:
-            with open(local_file_path, 'r', encoding='utf-8') as f:
-                book_content = f.read()
-            sanitized_book_title = os.path.splitext(os.path.basename(local_file_path))[0]
-            raw_book_title = sanitized_book_title # For local files, raw and sanitized might be the same
-            book_author = "Unknown" # Or prompt user for author
-        except FileNotFoundError:
-            print(f"Error: File not found at {local_file_path}. Exiting.")
-            return
-        except Exception as e:
-            print(f"Error reading local file: {e}. Exiting.")
-            return
-    else:
-        print("Invalid choice. Exiting.")
+    # 3. Get Book URL
+    # Prompt the user to enter the URL of the Project Gutenberg book.
+    book_url = get_user_book_url()
+    if not book_url:
+        print("No URL provided. Exiting.")
         return
+
+    # 4. Download Book Content
+    # Fetch the raw text content from the provided URL.
+    raw_text_content = GutenbergSource.get_text(book_url)
+    if not raw_text_content:
+        print("Failed to download book content. Exiting.")
+        return
+
+    # 5. Extract Book Metadata
+    # Get the book title and author from the downloaded content.
+    raw_book_title, sanitized_book_title = get_book_title(raw_text_content)
+    book_author = get_book_author(raw_text_content)
+    book_content = raw_text_content
  
     print(f"Detected Title: {raw_book_title}")
     print(f"Detected Author: {book_author}")
@@ -115,7 +87,7 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
 
     # 5. Export Raw Text
     # Save the initially downloaded raw text content.
-    raw_text_filepath = export_raw_text(book_content, sanitized_book_title, book_output_dir)
+    raw_text_filepath = FileTextExporter.export(book_content, sanitized_book_title, book_output_dir)
     if not raw_text_filepath:
         print("Failed to export raw text. Exiting.")
         return
@@ -123,17 +95,18 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     # 6. Clean Text Content
     # Clean the raw text by removing Project Gutenberg headers/footers and extra formatting.
     print("\nCleaning text content...")
-    cleaned_text_content = clean_text(raw_text_filepath, raw_book_title)
+    cleaned_text_content = GutenbergCleaner.clean(raw_text_filepath, raw_book_title)
     if not cleaned_text_content:
         print("Failed to clean text. Exiting.")
         return
 
     # 7. Export Cleaned Text
     # Save the cleaned text content to a new file.
-    cleaned_text_filepath = os.path.join(book_output_dir, f"{sanitized_book_title}_cleaned.txt")
-    if not export_cleaned_text(cleaned_text_content, cleaned_text_filepath):
+    cleaned_text_filepath = FileTextExporter.export(book_content, sanitized_book_title, book_output_dir)
+    if not FileTextExporter(cleaned_text_content, cleaned_text_filepath):
         print("Failed to export cleaned text. Exiting.")
         return
+
 
     # --- Audiobook Generation Logic Starts Here ---
     print("\n--- Audiobook Generation ---")
@@ -212,7 +185,16 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     # 15. Chunk Text for TTS
     # Google Cloud TTS has character limits per request, so the text is split into chunks.
     MAX_CHARS_PER_TTS_CHUNK = 4800
-    text_chunks = chunk_text_from_file(cleaned_text_filepath, max_chars_per_chunk=MAX_CHARS_PER_TTS_CHUNK)
+
+    # Read cleaned text from file
+    with open(cleaned_text_filepath, "r", encoding="utf-8") as f:
+        cleaned_text = f.read()
+
+    # Instantiate the chunker
+    chunker = DefaultTextChunker()
+
+    # Chunk the cleaned text
+    text_chunks = chunker.chunk(cleaned_text, max_chars_per_chunk=MAX_CHARS_PER_TTS_CHUNK)
     if not text_chunks:
         print("No text chunks generated for audiobook. Exiting.")
         return
