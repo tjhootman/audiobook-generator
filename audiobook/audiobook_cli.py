@@ -2,6 +2,17 @@
 import os
 from pydub import AudioSegment
 
+from text_processing import (
+    GutenbergSource,
+    GutenbergCleaner,
+    FileTextExporter,
+    DefaultTextChunker,
+    get_user_book_url,
+    get_book_title,
+    get_book_author,
+    setup_output_directory
+)
+
 from audio_analysis import (
     get_available_tts_voices,
     analyze_language,
@@ -13,16 +24,7 @@ from audio_analysis import (
     get_user_gender_preference,
     get_contextual_voice_parameters
 )
-from text_processing import (
-    GutenbergSource,
-    GutenbergCleaner,
-    FileTextExporter,
-    DefaultTextChunker,
-    get_user_book_url,
-    get_book_title,
-    get_book_author,
-    setup_output_directory
-)
+
 from image_generation import create_cover_image
 from video_processing import create_video
 from youtube_upload import upload_youtube_video

@@ -10,16 +10,6 @@ import re
 import requests
 import nltk
 
-# Ensure 'punkt' and 'punkt_tab' tokenizers are downloaded from NLTK.
-# These tokenizers are crucial for sentence segmentation, which is used
-# when chunking text for TTS, especially for long paragraphs.
-# A `LookupError` is caught if the resource is not found, triggering a download.
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    print("Downloading NLTK 'punkt' tokenizer data...")
-    nltk.download('punkt')
-
 # --- Abstractions ---
 
 class TextSource(ABC):
@@ -58,7 +48,7 @@ class GutenbergSource(TextSource):
             print(f"Error fetching URL: {e}")
             print("Please ensure the URL is correct and accesible.")
             return None
-    
+ 
 class LocalFileSource(TextSource):
     def __init__(self, filepath: str):
         self.filepath = filepath
@@ -73,7 +63,7 @@ class LocalFileSource(TextSource):
         except Exception as e:
             print(f"Error reading file {self.filepath}: {e}")
             return None
-        
+       
 class GutenbergCleaner(TextCleaner):
     def clean(self, text: str, raw_title: str="", file_path: Optional[str] = None) -> str:
         start_marker = f"*** START OF THE PROJECT GUTENBERG EBOOK {raw_title.upper()} ***"
@@ -122,6 +112,8 @@ class FileTextExporter(TextExporter):
         
 class DefaultTextChunker(TextChunker):
     def chunk(self, text: str, max_chars_per_chunk: int = 4800) -> List[str]:
+        # Ensure NLTK punkt is available before tokenizing
+        ensure_nltk_resource('tokenizers/punkt')
         chunks = []
         paragraphs = text.split('\n\n')
         current_chunk = ""
@@ -150,6 +142,26 @@ class DefaultTextChunker(TextChunker):
         if current_chunk:
             chunks.append(current_chunk.strip())
         return chunks
+
+
+# --- NLTK resource helper ---
+
+def ensure_nltk_resource(resource: str, download_if_missing: bool = True, quiet: bool = True):
+    """
+    Checks if the given NLTK resource is available, and downloads it if missing.
+
+    Args:
+        resource (str): The resource path, e.g. 'tokenizers/punkt'
+        download_if_missing (bool): Whether to download if missing.
+        quiet (bool): Whether to suppress download output.
+    """
+    try:
+        nltk.data.find(resource)
+    except LookupError:
+        if download_if_missing:
+            print(f"NLTK resource '{resource}' not found. Downloading...")
+            nltk.download(resource.split('/')[-1], quiet=quiet)
+
 
 # --- Utility Functions ---
 
@@ -203,6 +215,7 @@ def get_book_author(text_content: str) -> str:
             raw_author = match.group(1).strip()
             return raw_author if raw_author else default_author
     return default_author
+
 
 # --- Example Pipeline ---
 

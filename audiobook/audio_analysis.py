@@ -11,23 +11,15 @@ import time
 from google.cloud import language_v1
 from google.cloud import texttospeech
 from google.api_core.exceptions import ResourceExhausted, InternalServerError, ServiceUnavailable
-
 import nltk
+
+from text_processing import ensure_nltk_resource
 
 # Ensure 'punkt' and 'punkt_tab' tokenizers are downloaded for NLTK.
 # These tokenizers are used for sentence and word segmentation.
 # A LookupError is caught if the resource is not found, triggering a download.
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    print("Downloading NLTK 'punkt' tokenizer data...")
-    nltk.download('punkt')
-
-try:
-    nltk.data.find('tokenizers/punkt_tab')
-except LookupError:
-    print("Downloading NLTK 'punkt_tab' tokenizer data...")
-    nltk.download('punkt_tab')
+ensure_nltk_resource('tokenizers/punkt')
+ensure_nltk_resource('tokenizers/punkt_tab')
 
 # Map generic language codes to common regional variants for broader voice search.
 # This helps in finding suitable voices when only a generic language code (e.g., 'en') is detected.
