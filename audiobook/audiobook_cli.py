@@ -30,7 +30,8 @@ from image_generation import (
 )
 
 from video_processing import AudiobookVideoRenderer, AudiobookVideoService
-from youtube_upload import upload_youtube_video
+
+from youtube_upload import YouTubeAuthenticator, YouTubeUploader, YouTubeVideoService
 
 # Load .env variables
 load_dotenv()
@@ -169,29 +170,33 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     output_image_path = os.path.join(book_output_dir, output_image_file)
     service.renderer.render_video(output_image_path, output_audio_file, output_video_file, None, 24)
 
-    # #21. Upload video to YouTube Channel
-    # video_file = output_video_file
-    # video_title = f"{raw_book_title} Audiobook"
-    # video_description = f"Audiobook version of '{raw_book_title}' by {book_author}."
-    # video_tags = ["audiobook", "book", "literature", "classic"]
-    # video_privacy = "public" # Can be "public", "private", or "unlisted"
+    #21. Upload video to YouTube Channel
+    authenticator = YouTubeAuthenticator()
+    uploader = YouTubeUploader(authenticator)
+    video_service = YouTubeVideoService(uploader)
 
-    # uploaded_video_info = upload_youtube_video(
-    #     file_path=video_file,
-    #     title=video_title,
-    #     description=video_description,
-    #     tags=video_tags,
-    #     privacy_status=video_privacy
-    # )
+    video_file = output_video_file
+    video_title = f"{raw_book_title} Audiobook"
+    video_description = f"Audiobook version of '{raw_book_title}' by {book_author}."
+    video_tags = ["audiobook", "book", "literature", "classic"]
+    video_privacy = "public" # Can be "public", "private", or "unlisted"
 
-    # if uploaded_video_info:
-    #     print("\nUpload complete. Video details:")
-    #     print(f"Title: {uploaded_video_info['snippet']['title']}")
-    #     print(f"Description: {uploaded_video_info['snippet']['description']}")
-    #     print(f"Privacy Status: {uploaded_video_info['status']['privacyStatus']}")
-    #     print(f"Video ID: {uploaded_video_info['id']}")
-    # else:
-    #     print("\nVideo upload failed.")
+    uploaded_video_info = video_service.upload(
+        file_path=video_file,
+        title=video_title,
+        description=video_description,
+        tags=video_tags,
+        privacy_status=video_privacy
+    )
+
+    if uploaded_video_info:
+        print("\nUpload complete. Video details:")
+        print(f"Title: {uploaded_video_info['snippet']['title']}")
+        print(f"Description: {uploaded_video_info['snippet']['description']}")
+        print(f"Privacy Status: {uploaded_video_info['status']['privacyStatus']}")
+        print(f"Video ID: {uploaded_video_info['id']}")
+    else:
+        print("\nVideo upload failed.")
 
 if __name__ == "__main__":
     # Entry point of the script when executed directly.
