@@ -29,15 +29,14 @@ from image_generation import (
     get_env_or_raise,
 )
 
-
-from video_processing import create_video
+from video_processing import AudiobookVideoRenderer, AudiobookVideoService
 from youtube_upload import upload_youtube_video
 
 # Load .env variables
 load_dotenv()
 
 def generate_full_audiobook(output_base_dir="audiobook_output"):
-    
+ 
     setup_output_directory(output_base_dir)
 
     book_url = get_user_book_url()
@@ -147,6 +146,11 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"
     output_image_file = f"{sanitized_book_title}.png"
 
+    # --- Configuration for Vertex AI Imagen ---
+    # IMPORTANT: Replace with your actual Google Cloud Project ID and Location.
+    # Ensure Vertex AI API is enabled in your Google Cloud Project.
+    # Authenticate by running `gcloud auth application-default login` in your terminal.
+    # It's good practice to get these from environment variables.
     PROJECT_ID = get_env_or_raise('GOOGLE_CLOUD_PROJECT_ID', 'Google Cloud Project ID')
     LOCATION = get_env_or_raise('GOOGLE_CLOUD_LOCATION', 'Google Cloud Location')
 
@@ -157,10 +161,13 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     )
     cover_image_service.create_cover_image(prompt, book_output_dir, output_image_file)
 
-    # # 20. Create video for audiobook.
-    # output_video_file = os.path.join(book_output_dir, f"{sanitized_book_title}_audiobook.mp4")
-    # output_image_path = os.path.join(book_output_dir, output_image_file)
-    # create_video(output_image_path, output_audio_file, output_video_file, None, 24)
+    # 20. Create video for audiobook.
+    renderer = AudiobookVideoRenderer()
+    service = AudiobookVideoService(renderer)
+
+    output_video_file = os.path.join(book_output_dir, f"{sanitized_book_title}_audiobook.mp4")
+    output_image_path = os.path.join(book_output_dir, output_image_file)
+    service.renderer.render_video(output_image_path, output_audio_file, output_video_file, None, 24)
 
     # #21. Upload video to YouTube Channel
     # video_file = output_video_file
