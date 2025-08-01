@@ -14,15 +14,10 @@ from text_processing import (
 )
 
 from audio_analysis import (
-    get_available_tts_voices,
-    analyze_language,
-    analyze_sentiment,
-    analyze_category,
-    analyze_syntax_complexity,
-    analyze_regional_context,
-    synthesize_text_to_speech,
-    get_user_gender_preference,
-    get_contextual_voice_parameters
+    GoogleLanguageAnalyzer,
+    GoogleTTSVoiceSelector,
+    GoogleTTSSynthesizer,
+    UserPreference,
 )
 
 from image_generation import create_cover_image
@@ -66,18 +61,24 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     exporter.export(cleaned_text_content, cleaned_text_filepath)
 
     # --- Audiobook Generation Logic ---
-    get_available_tts_voices()
-    user_gender_preference = get_user_gender_preference()
 
-    detected_language_code = analyze_language(cleaned_text_content)
+    language_analyzer = GoogleLanguageAnalyzer()
+    voice_selector = GoogleTTSVoiceSelector()
+    tts_synthesizer = GoogleTTSSynthesizer()
+    user_pref_provider = UserPreference()
+
+    
+    user_gender_preference = user_pref_provider.get_gender_preference()
+
+    detected_language_code = language_analyzer.analyze_language(cleaned_text_content)
     regional_code_from_text = None
     if detected_language_code == "en":
-        regional_code_from_text = analyze_regional_context(cleaned_text_content, detected_language_code)
-    overall_score, overall_magnitude = analyze_sentiment(cleaned_text_content)
-    classified_categories = analyze_category(cleaned_text_content) if len(cleaned_text_content.split()) >= 20 else []
-    syntax_analysis_info = analyze_syntax_complexity(cleaned_text_content)
+        regional_code_from_text = language_analyzer.analyze_regional_context(cleaned_text_content, detected_language_code)
+    overall_score, overall_magnitude = language_analyzer.analyze_sentiment(cleaned_text_content)
+    classified_categories = language_analyzer.analyze_category(cleaned_text_content)
+    syntax_analysis_info = language_analyzer.analyze_syntax_complexity(cleaned_text_content)
 
-    voice_params = get_contextual_voice_parameters(
+    voice_params = voice_selector.get_contextual_voice_parameters(
         detected_language_code=detected_language_code,
         sentiment_score=overall_score,
         categories=classified_categories,
@@ -106,7 +107,7 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
         if not chunk.strip():
             continue
         temp_audio_file = os.path.join(temp_audio_dir, f"chunk_{i:04d}.mp3")
-        success = synthesize_text_to_speech(chunk, final_voice_name, final_language_code, final_voice_gender, temp_audio_file, final_pitch, final_speaking_rate)
+        success = tts_synthesizer.synthesize(chunk, voice_params, temp_audio_file, final_pitch, final_speaking_rate)
         if success:
             try:
                 audio_segments.append(AudioSegment.from_mp3(temp_audio_file))
