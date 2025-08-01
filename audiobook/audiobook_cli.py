@@ -8,7 +8,7 @@ from text_processing import (
     GutenbergCleaner,
     FileTextExporter,
     DefaultTextChunker,
-    AudiobookTextPipeline,
+    TextProcessingService,
     get_user_book_url,
     get_book_title,
     get_book_author,

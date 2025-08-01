@@ -217,40 +217,67 @@ def get_book_author(text_content: str) -> str:
     return default_author
 
 
-# --- Example Pipeline ---
+# --- High-level Service ---
 
-class AudiobookTextPipeline:
+class TextProcessingService:
     """
-    High-level pipeline coordinating downloading, cleaning, exporting, and chunking.
-    Depends only on abstractions.
+    High-level service class for end-to-end text file processing:
+    - Downloads or loads text (via TextSource)
+    - Cleans text (via TextCleaner)
+    - Exports raw and cleaned text (via TextExporter)
+    - Chunks cleaned text for TTS (via TextChunker)
     """
+
     def __init__(
         self,
-        source: TextSource,
-        cleaner: TextCleaner,
-        exporter: TextExporter,
-        chunker: TextChunker
+        source,
+        cleaner,
+        exporter,
+        chunker
     ):
         self.source = source
         self.cleaner = cleaner
         self.exporter = exporter
         self.chunker = chunker
 
-    def process(self, raw_title: str, raw_output_path: str, clean_output_path: str, chunk_size: int = 4800):
+    def process_text(
+        self,
+        raw_title: str,
+        raw_output_path: str,
+        clean_output_path: str,
+        chunk_size: int = 4800
+    ) -> Optional[dict]:
+        """
+        Orchestrates the full text processing pipeline.
+
+        Args:
+            raw_title (str): The title of the book (for cleaning).
+            raw_output_path (str): Output path for raw text export.
+            clean_output_path (str): Output path for cleaned text export.
+            chunk_size (int, optional): Max characters per TTS chunk. Defaults to 4800.
+
+        Returns:
+            dict: {
+                "raw_text": ...,
+                "cleaned_text": ...,
+                "chunks": [...]
+            }
+        """
         raw_text = self.source.get_text()
         if not raw_text:
             print("No text available from source.")
-            return None, []
+            return None
 
-        # Export raw text
         self.exporter.export(raw_text, raw_output_path)
 
-        # Clean text
         cleaned_text = self.cleaner.clean(raw_text, raw_title=raw_title)
         self.exporter.export(cleaned_text, clean_output_path)
 
-        # Chunk text
         chunks = self.chunker.chunk(cleaned_text, max_chars_per_chunk=chunk_size)
         print(f"Chunked into {len(chunks)} pieces for TTS.")
 
-        return cleaned_text, chunks
+        return {
+            "raw_text": raw_text,
+            "cleaned_text": cleaned_text,
+            "chunks": chunks
+        }
