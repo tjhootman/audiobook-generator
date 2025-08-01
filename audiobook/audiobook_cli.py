@@ -1,6 +1,7 @@
 """Main program for converting text files to audiobooks."""
 import os
 from pydub import AudioSegment
+from dotenv import load_dotenv
 
 from text_processing import (
     GutenbergSource,
@@ -10,7 +11,7 @@ from text_processing import (
     get_user_book_url,
     get_book_title,
     get_book_author,
-    setup_output_directory
+    setup_output_directory,
 )
 
 from audio_analysis import (
@@ -20,9 +21,20 @@ from audio_analysis import (
     UserPreference,
 )
 
-from image_generation import create_cover_image
+from image_generation import (
+    GoogleAuthenticator,
+    VertexAIImageGenerator,
+    PILImageSaver,
+    CoverImageservice,
+    get_env_or_raise,
+)
+
+
 from video_processing import create_video
 from youtube_upload import upload_youtube_video
+
+# Load .env variables
+load_dotenv()
 
 def generate_full_audiobook(output_base_dir="audiobook_output"):
     
@@ -67,7 +79,6 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     tts_synthesizer = GoogleTTSSynthesizer()
     user_pref_provider = UserPreference()
 
-    
     user_gender_preference = user_pref_provider.get_gender_preference()
 
     detected_language_code = language_analyzer.analyze_language(cleaned_text_content)
@@ -86,11 +97,9 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
         user_gender_preference=user_gender_preference,
         regional_code_from_text=regional_code_from_text
     )
-    final_voice_name = voice_params["name"]
+
     final_pitch = voice_params["pitch"]
     final_speaking_rate = voice_params["speaking_rate"]
-    final_language_code = voice_params["language_code"]
-    final_voice_gender = voice_params["voice_gender"]
 
     MAX_CHARS_PER_TTS_CHUNK = 4800
     chunker = DefaultTextChunker()
@@ -134,11 +143,19 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     os.rmdir(temp_audio_dir)
     print("Cleaned up temporary audio files.")
 
-    # # 19. Create cover image.
-    # prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"
-    # output_image_file = f"{sanitized_book_title}.png"
+    # 19. Create cover image.
+    prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"
+    output_image_file = f"{sanitized_book_title}.png"
 
-    # create_cover_image(prompt, book_output_dir, output_image_file)
+    PROJECT_ID = get_env_or_raise('GOOGLE_CLOUD_PROJECT_ID', 'Google Cloud Project ID')
+    LOCATION = get_env_or_raise('GOOGLE_CLOUD_LOCATION', 'Google Cloud Location')
+
+    cover_image_service = CoverImageservice(
+        authenticator=GoogleAuthenticator(),
+        image_generator=VertexAIImageGenerator(PROJECT_ID, LOCATION),
+        image_saver=PILImageSaver(),
+    )
+    cover_image_service.create_cover_image(prompt, book_output_dir, output_image_file)
 
     # # 20. Create video for audiobook.
     # output_video_file = os.path.join(book_output_dir, f"{sanitized_book_title}_audiobook.mp4")
