@@ -4,7 +4,7 @@ import os
 from moviepy import ImageClip, AudioFileClip, VideoFileClip, concatenate_videoclips
 from typing import Optional, Protocol
 
-# --- Abstractions (Interfaces) ---
+# --- Interface Definitions ---
 
 class IVideoRenderer(Protocol):
     def render_video(
@@ -16,7 +16,7 @@ class IVideoRenderer(Protocol):
     ) -> None:
         ...
 
-# --- Implentations ---
+# --- Implmentation Classes ---
 
 class AudiobookVideoRenderer(IVideoRenderer):
     def render_video(
@@ -72,7 +72,7 @@ class AudiobookVideoRenderer(IVideoRenderer):
         except Exception as e:
             print(f"An error occurred: {e}")
 
-# --- High-level Service (optional for further extension) ---
+# --- High-level Service  ---
 
 class AudiobookVideoService:
     def __init__(self, renderer: IVideoRenderer):

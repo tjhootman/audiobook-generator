@@ -32,7 +32,7 @@ class TextChunker(ABC):
     def chunk(self, text: str, max_chars_per_chunk: int = 4800) -> List[str]:
         pass
 
-# --- Concrete Implementations ---
+# --- Implementation Classes ---
 
 class GutenbergSource(TextSource):
     def __init__(self, url: str):

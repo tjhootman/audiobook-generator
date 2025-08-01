@@ -8,6 +8,7 @@ from text_processing import (
     GutenbergCleaner,
     FileTextExporter,
     DefaultTextChunker,
+    AudiobookTextPipeline,
     get_user_book_url,
     get_book_title,
     get_book_author,
@@ -19,13 +20,14 @@ from audio_analysis import (
     GoogleTTSVoiceSelector,
     GoogleTTSSynthesizer,
     UserPreference,
+    AudioSynthesisService,
 )
 
 from image_generation import (
     GoogleAuthenticator,
     VertexAIImageGenerator,
     PILImageSaver,
-    CoverImageservice,
+    CoverImageService,
     get_env_or_raise,
 )
 
@@ -37,7 +39,7 @@ from youtube_upload import YouTubeAuthenticator, YouTubeUploader, YouTubeVideoSe
 load_dotenv()
 
 def generate_full_audiobook(output_base_dir="audiobook_output"):
- 
+
     setup_output_directory(output_base_dir)
 
     book_url = get_user_book_url()
@@ -143,7 +145,7 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     os.rmdir(temp_audio_dir)
     print("Cleaned up temporary audio files.")
 
-    # 19. Create cover image.
+    # Create cover image
     prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"
     output_image_file = f"{sanitized_book_title}.png"
 
@@ -155,14 +157,14 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     PROJECT_ID = get_env_or_raise('GOOGLE_CLOUD_PROJECT_ID', 'Google Cloud Project ID')
     LOCATION = get_env_or_raise('GOOGLE_CLOUD_LOCATION', 'Google Cloud Location')
 
-    cover_image_service = CoverImageservice(
+    cover_image_service = CoverImageService(
         authenticator=GoogleAuthenticator(),
         image_generator=VertexAIImageGenerator(PROJECT_ID, LOCATION),
         image_saver=PILImageSaver(),
     )
     cover_image_service.create_cover_image(prompt, book_output_dir, output_image_file)
 
-    # 20. Create video for audiobook.
+    # Create video for audiobook
     renderer = AudiobookVideoRenderer()
     service = AudiobookVideoService(renderer)
 
@@ -170,7 +172,7 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     output_image_path = os.path.join(book_output_dir, output_image_file)
     service.renderer.render_video(output_image_path, output_audio_file, output_video_file, None, 24)
 
-    #21. Upload video to YouTube Channel
+    # Upload video to YouTube Channel
     authenticator = YouTubeAuthenticator()
     uploader = YouTubeUploader(authenticator)
     video_service = YouTubeVideoService(uploader)

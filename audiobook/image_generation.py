@@ -27,7 +27,7 @@ class IImageSaver(Protocol):
 
 # --- Implementation Classes ---
 
-# this only checks authentication. debugging print statements may eventually be removed in production
+# debugging print statements may eventually be removed in production
 class GoogleAuthenticator(IGoogleAuthenticator):
     def authenticate(self) -> None:
         try:
@@ -119,9 +119,17 @@ class PILImageSaver(IImageSaver):
                 print(f"Error saving image: {e}")
                 raise
 
+# --- Utility Classes ---
+
+def get_env_or_raise(var: str, friendly: str):
+    val = os.environ.get(var)
+    if not val:
+        raise ValueError(f"Please set the '{var}' environment variable ({friendly}).")
+    return val
+
 # --- High-level Service ---
 
-class CoverImageservice:
+class CoverImageService:
     def __init__(
         self,
         authenticator: IGoogleAuthenticator,
@@ -137,27 +145,3 @@ class CoverImageservice:
         image_bytes = self.image_generator.generate_image(prompt)
         output_path = self.image_saver.save_image(image_bytes, output_directory, output_filename)
         return output_path
-    
-# --- Usage Example ---
-
-def get_env_or_raise(var: str, friendly: str):
-    val = os.environ.get(var)
-    if not val:
-        raise ValueError(f"Please set the '{var}' environment variable ({friendly}).")
-    return val
-
-def main(prompt: str, output_directory: str, output_filename: str):
-    # --- Configuration for Vertex AI Imagen ---
-    # IMPORTANT: Replace with your actual Google Cloud Project ID and Location.
-    # Ensure Vertex AI API is enabled in your Google Cloud Project.
-    # Authenticate by running `gcloud auth application-default login` in your terminal.
-    # It's good practice to get these from environment variables.
-    PROJECT_ID = get_env_or_raise('GOOGLE_CLOUD_PROJECT_ID', 'Google Cloud Project ID')
-    LOCATION = get_env_or_raise('GOOGLE_CLOUD_LOCATION', 'Google Cloud Location')
-
-    cover_image_service = CoverImageservice(
-        authenticator=GoogleAuthenticator(),
-        image_generator=VertexAIImageGenerator(PROJECT_ID, LOCATION),
-        image_saver=PILImageSaver(),
-    )
-    return cover_image_service.create_cover_image(prompt, output_directory, output_filename)

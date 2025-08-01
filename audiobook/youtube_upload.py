@@ -8,7 +8,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
-# --- Abstractions (Interfaces) ---
+# --- Interface Definitions ---
 
 class IYouTubeAuthenticator(Protocol):
     def authenticate(self) -> Any: ...
@@ -24,7 +24,7 @@ class IYouTubeUploader(Protocol):
             privacy_status: str = "private"
     ) -> Optional[Dict]: ...
 
-# --- Implementations ---
+# --- Implementation Classes ---
 
 class YouTubeAuthenticator(IYouTubeAuthenticator):
     # The YouTube Data API scopes required for uploading videos.

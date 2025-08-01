@@ -589,3 +589,77 @@ class UserPreference(UserPreferenceProvider):
                 return None # User chose automatic
             else:
                 print("Invalid input. Please type 'Male', 'Female', 'Neutral', or press Enter.")
+
+# -- High-level Service ---
+
+class AudioSynthesisService:
+    """
+    High-level service for analyzing text, selecting contextual voice parameters, and synthesizing audio.
+    """
+
+    def __init__(
+        self,
+        language_analyzer,
+        voice_selector,
+        tts_synthesizer,
+        user_pref_provider,
+    ):
+        self.language_analyzer = language_analyzer
+        self.voice_selector = voice_selector
+        self.tts_synthesizer = tts_synthesizer
+        self.user_pref_provider = user_pref_provider
+
+    def generate_audio(
+        self,
+        text: str,
+        output_file: str,
+        user_gender_preference: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Analyze the text, select context-aware TTS parameters, and synthesize speech.
+
+        Args:
+            text (str): Text content to analyze and synthesize.
+            output_file (str): Path where the output audio file will be saved.
+            user_gender_preference (int, optional): Gender enum for voice (or None for auto).
+
+        Returns:
+            dict: Parameters that were used for synthesis, including analysis results.
+        """
+        lang_code = self.language_analyzer.analyze_language(text)
+        sentiment_score, sentiment_magnitude = self.language_analyzer.analyze_sentiment(text)
+        categories = self.language_analyzer.analyze_category(text)
+        syntax_info = self.language_analyzer.analyze_syntax_complexity(text)
+        regional_code = self.language_analyzer.analyze_regional_context(text, lang_code)
+
+        if user_gender_preference is None:
+            user_gender_preference = self.user_pref_provider.get_gender_preference()
+
+        voice_params = self.voice_selector.get_contextual_voice_parameters(
+            detected_language_code=lang_code,
+            sentiment_score=sentiment_score,
+            categories=categories,
+            syntax_info=syntax_info,
+            user_gender_preference=user_gender_preference,
+            regional_code_from_text=regional_code,
+        )
+
+        success = self.tts_synthesizer.synthesize(
+            text=text,
+            voice_params=voice_params,
+            output_filename=output_file,
+            pitch=voice_params["pitch"],
+            speaking_rate=voice_params["speaking_rate"]
+        )
+
+        return {
+            "success": success,
+            "output_file": output_file,
+            "language_code": lang_code,
+            "sentiment_score": sentiment_score,
+            "sentiment_magnitude": sentiment_magnitude,
+            "categories": categories,
+            "syntax_info": syntax_info,
+            "regional_code": regional_code,
+            "voice_parameters": voice_params
+        }
