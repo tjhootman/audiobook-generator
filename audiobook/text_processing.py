@@ -1,7 +1,7 @@
 """
 Module containing functions for text file cleaning, exporting, and preparing
 text for Text-to-Speech (TTS) conversion. This includes downloading content,
-extracting metadata, sanitizing text, and chunking it into manageable sizes.
+extracting metadata, and sanitizing text.
 """
 from abc import ABC, abstractmethod
 from typing import Optional, List
@@ -108,6 +108,7 @@ class FileTextExporter(TextExporter):
 # --- Utility Functions ---
 
 def setup_output_directory(directory_path: str):
+    print("Setting up output directory...")
     os.makedirs(directory_path, exist_ok=True)
     print(f"Output directory '{directory_path}' ensured.")
 
@@ -167,6 +168,7 @@ class TextProcessingService:
     - Downloads or loads text (via TextSource)
     - Cleans text (via TextCleaner)
     - Exports raw and cleaned text (via TextExporter)
+    - Extracts metata (title, author)
     """
 
     def __init__(
@@ -181,7 +183,6 @@ class TextProcessingService:
 
     def process_text(
         self,
-        raw_title: str,
         raw_output_path: str,
         clean_output_path: str,
     ) -> Optional[dict]:
@@ -189,12 +190,14 @@ class TextProcessingService:
         Orchestrates the full text processing pipeline.
 
         Args:
-            raw_title (str): The title of the book (for cleaning).
             raw_output_path (str): Output path for raw text export.
             clean_output_path (str): Output path for cleaned text export.
 
         Returns:
             dict: {
+                "raw_title": ...,
+                "sanitized_title": ...,
+                "author": ...,
                 "raw_text": ...,
                 "cleaned_text": ...,
             }
@@ -204,12 +207,25 @@ class TextProcessingService:
             print("No text available from source.")
             return None
 
-        self.exporter.export(raw_text, raw_output_path)
+        # 1. Extract metadata before cleaning
+        raw_title, sanitized_title = get_book_title(raw_text)
+        author = get_book_author(raw_text)
 
+        # 2. Export raw text (using the sanitized title for the filename)
+        raw_export_path = os.path.join(os.path.dirname(raw_output_path), f"{sanitized_title}_raw.txt")
+        self.exporter.export(raw_text, raw_export_path)
+
+        # 3. Clean the text using extracted raw title
         cleaned_text = self.cleaner.clean(raw_text, raw_title=raw_title)
-        self.exporter.export(cleaned_text, clean_output_path)
+
+        # 4. Export the cleaned text (using the sanitized title for the filename)
+        clean_export_path = os.path.join(os.path.dirname(clean_output_path), f"{sanitized_title}_cleaned.txt")
+        self.exporter.export(cleaned_text, clean_export_path)
 
         return {
+            "raw_title": raw_title,
+            "sanitized_title": sanitized_title,
+            "author": author,
             "raw_text": raw_text,
             "cleaned_text": cleaned_text,
         }

@@ -8,8 +8,6 @@ from text_processing import (
     FileTextExporter,
     TextProcessingService,
     get_user_book_url,
-    get_book_title,
-    get_book_author,
     setup_output_directory,
 )
 
@@ -88,41 +86,62 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
 
     setup_output_directory(output_base_dir)
 
+    # --- User Input ---
+    # Book URL
     book_url = get_user_book_url()
     if not book_url:
         print("No URL provided. Exiting.")
         return
-
-    source = GutenbergSource(book_url)
-    raw_text_content = source.get_text()
-    if raw_text_content is None:
-        print("Failed to download book content. Exiting.")
-        return
-
-    raw_book_title, sanitized_book_title = get_book_title(raw_text_content)
-    book_author = get_book_author(raw_text_content)
-    print(f"Detected Title: {raw_book_title}")
-    print(f"Detected Author: {book_author}")
-
-    book_output_dir = os.path.join(output_base_dir, sanitized_book_title)
-    setup_output_directory(book_output_dir)
-
-    # Export raw text
-    exporter = FileTextExporter()
-    raw_text_filepath = os.path.join(book_output_dir, f"{sanitized_book_title}_raw.txt")
-    exporter.export(raw_text_content, raw_text_filepath)
-
-    # Clean text
-    cleaner = GutenbergCleaner()
-    cleaned_text_content = cleaner.clean(raw_text_content, raw_title=raw_book_title, file_path=raw_text_filepath)
-
-    # Export cleaned text
-    cleaned_text_filepath = os.path.join(book_output_dir, f"{sanitized_book_title}_cleaned.txt")
-    exporter.export(cleaned_text_content, cleaned_text_filepath)
-
+    
     # User gender preference
     user_pref_provider = UserPreference()
     user_gender_preference = user_pref_provider.get_gender_preference()
+
+    # Video Generation and YouTube Upload preferences
+    do_video = input("Would you like to create a video and upload to YouTube? (y/n): ").strip().lower() == "y"
+
+    
+    # --- Text Processing ---
+
+    source = GutenbergSource(book_url)
+    cleaner = GutenbergCleaner()
+    exporter = FileTextExporter()
+
+    text_processor = TextProcessingService(
+        source=source,
+        cleaner=cleaner,
+        exporter=exporter
+    )
+
+    print("Processing book text (download, clean, extract metadata)...")
+    
+    # Define placeholder paths for the service to construct the final file paths
+    # based on the book title.
+    raw_placeholder_path = os.path.join(output_base_dir, "raw_placeholder.txt")
+    clean_placeholder_path = os.path.join(output_base_dir, "cleaned_placeholder.txt")
+
+    book_data = text_processor.process_text(
+        raw_output_path=raw_placeholder_path,
+        clean_output_path=clean_placeholder_path
+    )
+        
+    if not book_data:
+        print("Text processing failed. Exiting.")
+        return
+    
+    # Extract metadata and content from returned dictionary
+    raw_book_title = book_data["raw_title"]
+    book_author = book_data["author"]
+    sanitized_book_title = book_data["sanitized_title"]
+    cleaned_text_content = book_data["cleaned_text"]
+
+    print(f"Detected Title: {raw_book_title}")
+    print(f"Detected Author: {book_author}")
+
+    # Create a book-specific output directory
+    book_output_dir = os.path.join(output_base_dir, sanitized_book_title)
+    setup_output_directory(book_output_dir)
+    print(f"Book output directory: {book_output_dir}")
 
 
     # --- Audiobook Generation Logic ---
@@ -171,7 +190,7 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     )
     cover_image_service.create_cover_image(prompt, book_output_dir, output_image_file)
 
-    do_video = input("Would you like to create a video and upload to YouTube? (y/n): ").strip().lower() == "y"
+    
     if do_video:
         run_video_youtube_pipeline(
             audio_file=output_audio_file,
