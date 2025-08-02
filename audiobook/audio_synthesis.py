@@ -738,7 +738,7 @@ class AudioSynthesisService:
                 voice_params=voice_params,
                 output_filename=temp_audio_file,
                 pitch=voice_params["pitch"],
-                speaking_rate=voice_params["speaking rate"]
+                speaking_rate=voice_params["speaking_rate"]
             )
             if success:
                 try:

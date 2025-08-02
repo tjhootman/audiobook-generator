@@ -103,21 +103,21 @@ class PILImageSaver(IImageSaver):
             os.makedirs(output_directory)
             print(f"Created output directory: {output_directory}")
 
-            # Construct the full output path
-            # Ensure the output_filename has an extension, or append default
-            base_name, ext = os.path.splitext(output_filename)
-            if not ext: # If no extension was provided in output_filename
-                ext = '.png'
-            full_output_path = os.path.join(output_directory, f"{base_name}{ext}")
+        # Construct the full output path
+        # Ensure the output_filename has an extension, or append default
+        base_name, ext = os.path.splitext(output_filename)
+        if not ext: # If no extension was provided in output_filename
+            ext = '.png'
+        full_output_path = os.path.join(output_directory, f"{base_name}{ext}")
 
-            try:
-                image = Image.open(BytesIO(image_bytes))
-                image.save(full_output_path)
-                print(f"Saved generated image to {full_output_path}")
-                return full_output_path
-            except Exception as e:
-                print(f"Error saving image: {e}")
-                raise
+        try:
+            image = Image.open(BytesIO(image_bytes))
+            image.save(full_output_path)
+            print(f"Saved generated image to {full_output_path}")
+            return full_output_path
+        except Exception as e:
+            print(f"Error saving image: {e}")
+            raise
 
 # --- Utility Classes ---
 
