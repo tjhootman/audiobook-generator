@@ -4,11 +4,16 @@ text for Text-to-Speech (TTS) conversion. This includes downloading content,
 extracting metadata, and sanitizing text.
 """
 from abc import ABC, abstractmethod
-from typing import Optional, List
+from typing import Optional
+import logging
 import os
 import re
 import requests
-import nltk
+import urllib.parse
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 
 # --- Abstractions ---
 
@@ -30,36 +35,105 @@ class TextExporter(ABC):
 # --- Implementation Classes ---
 
 class GutenbergSource(TextSource):
+    """A TextSource implementation for downloading raw text files from Project Gutenberg.
+
+    Args:
+        url (str): The URL for the Project Gutenberg raw text file.
+    """
     def __init__(self, url: str):
+        # Proactively validate the URL format
+        parsed_url = urllib.parse.urlparse(url)
+        if not all([parsed_url.scheme, parsed_url.netloc]):
+            logging.error("Invalid URL format: %s", url)
+            raise ValueError("Invalid URL format. Must be a complete URL with scheme and netloc.")
         self.url = url
 
     def get_text(self) -> Optional[str]:
-        print(f"Attempting to download from: {self.url}")
-        try: 
-            r = requests.get(self.url)
-            r.raise_for_status()
+        logging.info("Attempting to download from: %s", self.url)
+
+        # Define a timeout for the request and a user-agent header
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        timeout = 30 #seconds
+
+        try:
+            r = requests.get(self.url, headers=headers, timeout=timeout)
+            r.raise_for_status() # This will raise an HTTPError for bad status codes
+
+            # Verify the response content type is text
+            content_type =  r.headers.get('Content-Type', '').split(';')[0]
+            if not content_type.startswith('text/'):
+                logging.error("Expected a text file, but received Content-Type: %s", content_type)
+                return None
+
+            logging.info("Download successful")
             return r.text
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching URL: {e}")
-            print("Please ensure the URL is correct and accesible.")
+        except requests.exceptions.HTTPError as e:
+            logging.error("HTTP error occurred: %s", e)
+            logging.error("Please ensure the URL is correct and points to a valid file.")
             return None
- 
+        except requests.exceptions.ConnectionError as e:
+            logging.error("Connection error occurred: %s", e)
+            logging.error("Please check your network connection.")
+            return None
+        except requests.exceptions.Timeout as e:
+            logging.error("Request timed out after %d seconds: %s", timeout, e)
+            logging.error("The server may be too slow or unresponsive. Please try again later.")
+            return None
+        except requests.exceptions.RequestException as e:
+            # Catch any other requests-related exceptions
+            logging.error("An unexpected error occurred during the request: %s", e)
+            return None
+        except ValueError as e:
+            # Catch the ValieError from the constructor
+            logging.error("Failed to initialize GutenbergSource due to: %s", e)
+            return None
+
 class LocalFileSource(TextSource):
-    def __init__(self, filepath: str):
-        self.filepath = filepath
+    """A TextSource implementation for reading text from a local file path.
+
+    Args:
+        filepath (str): The local file path to read from.
+        encoding (str, optional): The character encoding of the file. Defaults to 'utf-8'.
+    """
+    def __init__(self, filepath: str, encoding: str = 'utf-8'):
+        # Normalize the path in the constructor to ensure consistency
+        self.filepath = os.path.normpath(os.path.abspath(filepath))
+        self.encoding = encoding
 
     def get_text(self) -> Optional[str]:
-        if not os.path.exists(self.filepath):
-            print(f"Error: File not found at {self.filepath}")
+        logging.info("Attempting to read file from: %s", self.filepath)
+
+        # Proactively check if the path points to a file
+        if not os.path.isfile(self.filepath):
+            logging.error("Error: Path is not a file or does not exist at %s", self.filepath)
             return None
-        try: 
-            with open(self.filepath, 'r', encoding='utf-8') as f:
-                return f.read()
+
+        try:
+            with open(self.filepath, 'r', encoding=self.encoding) as f:
+                content = f.read()
+                logging.info("File read successfully.")
+                return content
+        except PermissionError as e:
+            logging.error("Permission denied when trying to read file %s: %s", self.filepath, e)
+            return None
+        except UnicodeDecodeError as e:
+            logging.error("Error decoding file %s with encoding '%s': %s", self.filepath, self.encoding, e)
+            return None
+        except IOError as e:
+            logging.error("Error reading file %s: %s", self.filepath, e)
+            return None
         except Exception as e:
-            print(f"Error reading file {self.filepath}: {e}")
+            # A final, general catch-all for unexpected issues
+            logging.error("An unexpected error occurred while reading file %s: %s", self.filepath, e)
             return None
-       
+   
 class GutenbergCleaner(TextCleaner):
+    """Cleans text from Project Gutenberg, removing headers, footers, and
+    standardizing formatting for Text-to-Speech conversion.
+
+    Args:
+        TextCleaner (_type_): _description_
+    """
     def clean(self, text: str, raw_title: str="", file_path: Optional[str] = None) -> str:
         start_marker = f"*** START OF THE PROJECT GUTENBERG EBOOK {raw_title.upper()} ***"
         end_marker = f"*** END OF THE PROJECT GUTENBERG EBOOK {raw_title.upper()} ***"

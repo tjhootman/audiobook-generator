@@ -84,9 +84,13 @@ def run_video_youtube_pipeline(
 
 def generate_full_audiobook(output_base_dir="audiobook_output"):
 
+
+    # --- Setup Output directory ---
     setup_output_directory(output_base_dir)
 
+
     # --- User Input ---
+
     # Book URL
     book_url = get_user_book_url()
     if not book_url:
@@ -103,6 +107,7 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     
     # --- Text Processing ---
 
+    # Text Processing Service Setup
     source = GutenbergSource(book_url)
     cleaner = GutenbergCleaner()
     exporter = FileTextExporter()
@@ -144,7 +149,7 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     print(f"Book output directory: {book_output_dir}")
 
 
-    # --- Audiobook Generation Logic ---
+    # --- Audiobook Synthesis ---
 
     # Audio Synthesis Service Setup
     language_analyzer = GoogleLanguageAnalyzer()
