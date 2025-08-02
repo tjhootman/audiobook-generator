@@ -1,13 +1,11 @@
 """Main program for converting text files to audiobooks."""
 import os
-from pydub import AudioSegment
 from dotenv import load_dotenv
 
 from text_processing import (
     GutenbergSource,
     GutenbergCleaner,
     FileTextExporter,
-    DefaultTextChunker,
     TextProcessingService,
     get_user_book_url,
     get_book_title,
@@ -15,7 +13,7 @@ from text_processing import (
     setup_output_directory,
 )
 
-from audio_analysis import (
+from audiobook.audio_synthesis import (
     GoogleLanguageAnalyzer,
     GoogleTTSVoiceSelector,
     GoogleTTSSynthesizer,
@@ -74,76 +72,37 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     cleaned_text_filepath = os.path.join(book_output_dir, f"{sanitized_book_title}_cleaned.txt")
     exporter.export(cleaned_text_content, cleaned_text_filepath)
 
+    # User gender preference
+    user_pref_provider = UserPreference()
+    user_gender_preference = user_pref_provider.get_gender_preference()
+
+
     # --- Audiobook Generation Logic ---
 
+    # Audio Synthesis Service Setup
     language_analyzer = GoogleLanguageAnalyzer()
     voice_selector = GoogleTTSVoiceSelector()
     tts_synthesizer = GoogleTTSSynthesizer()
     user_pref_provider = UserPreference()
-
-    user_gender_preference = user_pref_provider.get_gender_preference()
-
-    detected_language_code = language_analyzer.analyze_language(cleaned_text_content)
-    regional_code_from_text = None
-    if detected_language_code == "en":
-        regional_code_from_text = language_analyzer.analyze_regional_context(cleaned_text_content, detected_language_code)
-    overall_score, overall_magnitude = language_analyzer.analyze_sentiment(cleaned_text_content)
-    classified_categories = language_analyzer.analyze_category(cleaned_text_content)
-    syntax_analysis_info = language_analyzer.analyze_syntax_complexity(cleaned_text_content)
-
-    voice_params = voice_selector.get_contextual_voice_parameters(
-        detected_language_code=detected_language_code,
-        sentiment_score=overall_score,
-        categories=classified_categories,
-        syntax_info=syntax_analysis_info,
-        user_gender_preference=user_gender_preference,
-        regional_code_from_text=regional_code_from_text
+    audio_service = AudioSynthesisService(
+        language_analyzer,
+        voice_selector,
+        tts_synthesizer,
+        user_pref_provider
     )
 
-    final_pitch = voice_params["pitch"]
-    final_speaking_rate = voice_params["speaking_rate"]
+    # Syntesize Audiobook (the service handles chunking and temp files)
+    output_audio_file = os.path.join(book_output_dir, f"{sanitized_book_title}_audiobook.mp3")
+    audio_result = audio_service.synthesize_audio(
+        text=cleaned_text_content,
+        output_audio_path=output_audio_file,
+        temp_audio_dir=os.path.join(book_output_dir, "temp_audio_chunks"),
+        user_gender_preference=user_gender_preference
+    )
 
-    MAX_CHARS_PER_TTS_CHUNK = 4800
-    chunker = DefaultTextChunker()
-    text_chunks = chunker.chunk(cleaned_text_content, max_chars_per_chunk=MAX_CHARS_PER_TTS_CHUNK)
-    if not text_chunks:
-        print("No text chunks generated for audiobook. Exiting.")
-        return
-
-    audio_segments = []
-    temp_audio_dir = os.path.join(book_output_dir, "temp_audio_chunks")
-    setup_output_directory(temp_audio_dir)
-
-    for i, chunk in enumerate(text_chunks):
-        if not chunk.strip():
-            continue
-        temp_audio_file = os.path.join(temp_audio_dir, f"chunk_{i:04d}.mp3")
-        success = tts_synthesizer.synthesize(chunk, voice_params, temp_audio_file, final_pitch, final_speaking_rate)
-        if success:
-            try:
-                audio_segments.append(AudioSegment.from_mp3(temp_audio_file))
-            except Exception as e:
-                print(f"Error loading chunk {i}: {e}")
-        else:
-            with open(os.path.join(book_output_dir, f"failed_chunk_{i:04d}.txt"), "w", encoding="utf-8") as err_f:
-                err_f.write(chunk)
-
-    if not audio_segments:
+    if not audio_result:
         print("No audio segments were successfully generated for the audiobook. Exiting.")
         return
-
-    combined_audio = AudioSegment.empty()
-    for segment in audio_segments:
-        combined_audio += segment
-
-    output_audio_file = os.path.join(book_output_dir, f"{sanitized_book_title}_audiobook.mp3")
-    combined_audio.export(output_audio_file, format="mp3")
-    print(f"Audiobook created successfully: '{output_audio_file}'")
-
-    for file_name in os.listdir(temp_audio_dir):
-        os.remove(os.path.join(temp_audio_dir, file_name))
-    os.rmdir(temp_audio_dir)
-    print("Cleaned up temporary audio files.")
 
     # Create cover image
     prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"

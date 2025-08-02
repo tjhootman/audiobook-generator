@@ -27,11 +27,6 @@ class TextExporter(ABC):
     def export(self, content: str, destination: str) -> bool:
         pass
 
-class TextChunker(ABC):
-    @abstractmethod
-    def chunk(self, text: str, max_chars_per_chunk: int = 4800) -> List[str]:
-        pass
-
 # --- Implementation Classes ---
 
 class GutenbergSource(TextSource):
@@ -109,59 +104,6 @@ class FileTextExporter(TextExporter):
         except Exception as e:
             print(f"Error in exporting text: {e}")
             return False
-        
-class DefaultTextChunker(TextChunker):
-    def chunk(self, text: str, max_chars_per_chunk: int = 4800) -> List[str]:
-        # Ensure NLTK punkt is available before tokenizing
-        ensure_nltk_resource('tokenizers/punkt')
-        chunks = []
-        paragraphs = text.split('\n\n')
-        current_chunk = ""
-        for para in paragraphs:
-            para = para.strip()
-            if not para:
-                continue
-            if len(current_chunk) + len(para) + 2 > max_chars_per_chunk and current_chunk:
-                chunks.append(current_chunk.strip())
-                current_chunk = ""
-            if len(para) > max_chars_per_chunk:
-                sentences = nltk.sent_tokenize(para)
-                sentence_chunk = ""
-                for sentence in sentences:
-                    if len(sentence_chunk) + len(sentence) + 1 > max_chars_per_chunk and sentence_chunk:
-                        chunks.append(sentence_chunk.strip())
-                        sentence_chunk = ""
-                    sentence_chunk += sentence + " "
-                if sentence_chunk:
-                    chunks.append(sentence_chunk.strip())
-            else:
-                if current_chunk:
-                    current_chunk += "\n\n" + para
-                else:
-                    current_chunk = para
-        if current_chunk:
-            chunks.append(current_chunk.strip())
-        return chunks
-
-
-# --- NLTK resource helper ---
-
-def ensure_nltk_resource(resource: str, download_if_missing: bool = True, quiet: bool = True):
-    """
-    Checks if the given NLTK resource is available, and downloads it if missing.
-
-    Args:
-        resource (str): The resource path, e.g. 'tokenizers/punkt'
-        download_if_missing (bool): Whether to download if missing.
-        quiet (bool): Whether to suppress download output.
-    """
-    try:
-        nltk.data.find(resource)
-    except LookupError:
-        if download_if_missing:
-            print(f"NLTK resource '{resource}' not found. Downloading...")
-            nltk.download(resource.split('/')[-1], quiet=quiet)
-
 
 # --- Utility Functions ---
 
@@ -225,7 +167,6 @@ class TextProcessingService:
     - Downloads or loads text (via TextSource)
     - Cleans text (via TextCleaner)
     - Exports raw and cleaned text (via TextExporter)
-    - Chunks cleaned text for TTS (via TextChunker)
     """
 
     def __init__(
@@ -233,19 +174,16 @@ class TextProcessingService:
         source,
         cleaner,
         exporter,
-        chunker
     ):
         self.source = source
         self.cleaner = cleaner
         self.exporter = exporter
-        self.chunker = chunker
 
     def process_text(
         self,
         raw_title: str,
         raw_output_path: str,
         clean_output_path: str,
-        chunk_size: int = 4800
     ) -> Optional[dict]:
         """
         Orchestrates the full text processing pipeline.
@@ -254,13 +192,11 @@ class TextProcessingService:
             raw_title (str): The title of the book (for cleaning).
             raw_output_path (str): Output path for raw text export.
             clean_output_path (str): Output path for cleaned text export.
-            chunk_size (int, optional): Max characters per TTS chunk. Defaults to 4800.
 
         Returns:
             dict: {
                 "raw_text": ...,
                 "cleaned_text": ...,
-                "chunks": [...]
             }
         """
         raw_text = self.source.get_text()
@@ -273,11 +209,7 @@ class TextProcessingService:
         cleaned_text = self.cleaner.clean(raw_text, raw_title=raw_title)
         self.exporter.export(cleaned_text, clean_output_path)
 
-        chunks = self.chunker.chunk(cleaned_text, max_chars_per_chunk=chunk_size)
-        print(f"Chunked into {len(chunks)} pieces for TTS.")
-
         return {
             "raw_text": raw_text,
             "cleaned_text": cleaned_text,
-            "chunks": chunks
         }

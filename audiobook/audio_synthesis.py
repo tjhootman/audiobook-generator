@@ -8,12 +8,15 @@ and dynamic voice parameter adjustment based on text characteristics.
 """
 import random
 import time
+import os
 from typing import List, Optional, Dict, Any, Tuple
+from abc import ABC, abstractmethod
 import nltk
+from pydub import AudioSegment
 from google.cloud import language_v1
 from google.cloud import texttospeech
 from google.api_core.exceptions import ResourceExhausted, InternalServerError, ServiceUnavailable
-from text_processing import ensure_nltk_resource
+
 
 # --- Interface Definitions ---
 
@@ -35,6 +38,14 @@ class TTSSynthesizer:
 
 class UserPreferenceProvider:
     def get_gender_preference(self) -> Optional[int]: ...
+
+
+# --- Abstractions ---
+
+class TextChunker(ABC):
+    @abstractmethod
+    def chunk(self, text: str, max_chars_per_chunk: int = 4800) -> List[str]:
+        pass
 
 
 # --- Implementation Classes ---
@@ -590,12 +601,67 @@ class UserPreference(UserPreferenceProvider):
             else:
                 print("Invalid input. Please type 'Male', 'Female', 'Neutral', or press Enter.")
 
+class DefaultTextChunker(TextChunker):
+    def chunk(self, text: str, max_chars_per_chunk: int = 4800) -> List[str]:
+        # Ensure NLTK punkt is available before tokenizing
+        ensure_nltk_resource('tokenizers/punkt')
+        chunks = []
+        paragraphs = text.split('\n\n')
+        current_chunk = ""
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            if len(current_chunk) + len(para) + 2 > max_chars_per_chunk and current_chunk:
+                chunks.append(current_chunk.strip())
+                current_chunk = ""
+            if len(para) > max_chars_per_chunk:
+                sentences = nltk.sent_tokenize(para)
+                sentence_chunk = ""
+                for sentence in sentences:
+                    if len(sentence_chunk) + len(sentence) + 1 > max_chars_per_chunk and sentence_chunk:
+                        chunks.append(sentence_chunk.strip())
+                        sentence_chunk = ""
+                    sentence_chunk += sentence + " "
+                if sentence_chunk:
+                    chunks.append(sentence_chunk.strip())
+            else:
+                if current_chunk:
+                    current_chunk += "\n\n" + para
+                else:
+                    current_chunk = para
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+        return chunks
+
+
+# --- NLTK resource helper ---
+
+def ensure_nltk_resource(resource: str, download_if_missing: bool = True, quiet: bool = True):
+    """
+    Checks if the given NLTK resource is available, and downloads it if missing.
+
+    Args:
+        resource (str): The resource path, e.g. 'tokenizers/punkt'
+        download_if_missing (bool): Whether to download if missing.
+        quiet (bool): Whether to suppress download output.
+    """
+    try:
+        nltk.data.find(resource)
+    except LookupError:
+        if download_if_missing:
+            print(f"NLTK resource '{resource}' not found. Downloading...")
+            nltk.download(resource.split('/')[-1], quiet=quiet)
+
+
 # -- High-level Service ---
 
 class AudioSynthesisService:
     """
-    High-level service for analyzing text, selecting contextual voice parameters, and synthesizing audio.
+    High-level service for analyzing text, selecting contextual voice parameters, chunking for TTS API, and synthesizing audio.
     """
+    
+    MAX_CHARS_PER_TTS_CHUNK = 4800 # Google TTS limit
 
     def __init__(
         self,
@@ -603,29 +669,42 @@ class AudioSynthesisService:
         voice_selector,
         tts_synthesizer,
         user_pref_provider,
+        chunker = None
     ):
         self.language_analyzer = language_analyzer
         self.voice_selector = voice_selector
         self.tts_synthesizer = tts_synthesizer
         self.user_pref_provider = user_pref_provider
+        self.chunker = chunker if chunker else DefaultTextChunker()
 
-    def generate_audio(
+    def synthesize_audio(
         self,
         text: str,
-        output_file: str,
+        output_audio_path: str,
+        temp_audio_dir: str = None,
         user_gender_preference: Optional[int] = None
-    ) -> Dict[str, Any]:
+    ) -> Optional[str]:
         """
-        Analyze the text, select context-aware TTS parameters, and synthesize speech.
+        Chunk text, analyze, select TTS parameters, synthesize, and combine audio.
 
         Args:
             text (str): Text content to analyze and synthesize.
-            output_file (str): Path where the output audio file will be saved.
+            output_audio_path (str): Path where the output audio file will be saved.
+            temp_audio_dir (str, optional): Directory for intermediate audio chunks. 
             user_gender_preference (int, optional): Gender enum for voice (or None for auto).
 
         Returns:
-            dict: Parameters that were used for synthesis, including analysis results.
+            str: Path to final audiobook MP3 if sucessful, else None.
         """
+
+        # Chunking
+        chunks = self.chunker.chunk(text, max_chars_per_chunk=self.MAX_CHARS_PER_TTS_CHUNK)
+        if not chunks:
+            print("No text chunks generated for audiobook.")
+            return None
+        
+
+        # Analysis (use full text for consistent parameters)
         lang_code = self.language_analyzer.analyze_language(text)
         sentiment_score, sentiment_magnitude = self.language_analyzer.analyze_sentiment(text)
         categories = self.language_analyzer.analyze_category(text)
@@ -644,22 +723,46 @@ class AudioSynthesisService:
             regional_code_from_text=regional_code,
         )
 
-        success = self.tts_synthesizer.synthesize(
-            text=text,
-            voice_params=voice_params,
-            output_filename=output_file,
-            pitch=voice_params["pitch"],
-            speaking_rate=voice_params["speaking_rate"]
-        )
+        # Prepare temp dir
+        if not temp_audio_dir:
+            temp_audio_dir = os.path.join(os.path.dirname(output_audio_path), "temp_audio_chunks")
+        os.makedirs(temp_audio_dir, exist_ok=True)
 
-        return {
-            "success": success,
-            "output_file": output_file,
-            "language_code": lang_code,
-            "sentiment_score": sentiment_score,
-            "sentiment_magnitude": sentiment_magnitude,
-            "categories": categories,
-            "syntax_info": syntax_info,
-            "regional_code": regional_code,
-            "voice_parameters": voice_params
-        }
+        audio_segments = []
+        for i, chunk in enumerate(chunks):
+            if not chunk.strip():
+                continue
+            temp_audio_file = os.path.join(temp_audio_dir, f"chunk_{i:04d}.mp3")
+            success = self.tts_synthesizer.synthesize(
+                text=chunk, 
+                voice_params=voice_params,
+                output_filename=temp_audio_file,
+                pitch=voice_params["pitch"],
+                speaking_rate=voice_params["speaking rate"]
+            )
+            if success:
+                try:
+                    audio_segments.append(AudioSegment.from_mp3(temp_audio_file))
+                except Exception as e:
+                    print(f"Error loading chunk {i}: {e}")
+            else:
+                with open(os.path.join(temp_audio_dir, f"failed_chunk_{i:04d}.txt"), "w", encoding="utf-8") as err_f:
+                    err_f.write(chunk)
+
+        if not audio_segments:
+            print("No audio segments were successfully generated for the audiobook. Exiting.")
+            return None
+
+        # Combine audio
+        combined_audio = AudioSegment.empty()
+        for segment in audio_segments:
+            combined_audio += segment
+        combined_audio.export(output_audio_path, format="mp3")
+        
+        # Clean up
+        for file_name in os.listdir(temp_audio_dir):
+            os.remove(os.path.join(temp_audio_dir, file_name))
+        os.rmdir(temp_audio_dir)
+
+        print(f"Audiobook created successfully: '{output_audio_path}'")
+        return output_audio_path
