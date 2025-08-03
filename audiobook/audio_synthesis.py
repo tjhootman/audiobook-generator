@@ -9,10 +9,12 @@ and dynamic voice parameter adjustment based on text characteristics.
 import random
 import time
 import os
-from typing import List, Optional, Dict, Any, Tuple
+import logging
+from typing import Protocol, List, Optional, Dict, Set, Any, Tuple
 from abc import ABC, abstractmethod
 import nltk
 from pydub import AudioSegment
+from pydub.exceptions import CouldntDecodeError
 from google.cloud import language_v1
 from google.cloud import texttospeech
 from google.api_core.exceptions import ResourceExhausted, InternalServerError, ServiceUnavailable
@@ -20,193 +22,317 @@ from google.api_core.exceptions import ResourceExhausted, InternalServerError, S
 
 # --- Interface Definitions ---
 
-class LanguageAnalyzer:
-    def analyze_language(self, text: str) -> str: ...
-    def analyze_sentiment(self, text: str) -> Tuple[float, float]: ...
-    def analyze_category(self, text: str) -> List[str]: ...
-    def analyze_syntax_complexity(self, text: str) -> Dict[str, Any]: ...
-    def analyze_regional_context(self, text: str, detected_code: str) -> Optional[str]: ...
+class LanguageAnalyzer(Protocol):
+    """
+    Protocol for classes that perform various linguistic analyses on text.
+    """
+    def analyze_language(self, text: str) -> str:
+        """
+        Detects the language of a given text.
 
-class TTSVoiceSelector:
-    def get_available_voices(self, code: Optional[str] = None) -> List[Any]: ...
-    def get_contextual_voice_parameters(self, detected_language_code: str, sentiment_score: float, categories: Optional[List[str]] = None,
-                                        syntax_info: Optional[Dict[str, Any]] = None, user_gender_preference: Optional[int] = None,
-                                        regional_code_from_text: Optional[str] = None) -> Dict[str, Any]: ...
+        Args:
+            text (str): The text content to analyze.
 
-class TTSSynthesizer:
-    def synthesize(self, text: str, voice_params: Dict[str, Any], output_filename: str, pitch: float = 0.0, speaking_rate: float = 1.0) -> bool: ...
+        Returns:
+            str: The language code (e.g., 'en-US', 'es-ES').
+        """
+        ...
+    def analyze_sentiment(self, text: str) -> Tuple[float, float]:
+        """
+        Determines the sentiment of the text.
 
-class UserPreferenceProvider:
-    def get_gender_preference(self) -> Optional[int]: ...
+        Args:
+            text (str): The text content to analyze.
+
+        Returns:
+            Tuple[float, float]: A tuple containing the sentiment score and magnitude.
+        """
+        ...
+    def analyze_category(self, text: str) -> List[str]:
+        """
+        Classifies the text into one or more content categories.
+
+        Args:
+            text (str): The text content to analyze.
+
+        Returns:
+            List[str]: A list of categories the text belongs to.
+        """
+        ...
+    def analyze_syntax_complexity(self, text: str) -> Dict[str, Any]:
+        """
+        Analyzes the syntactic structure and complexity of the text.
+
+        Args:
+            text (str): The text content to analyze.
+
+        Returns:
+            Dict[str, Any]: A dictionary containing information about syntax (e.g., sentence structure).
+        """
+        ...
+    def analyze_regional_context(self, text: str, detected_code: str) -> Optional[str]:
+        """
+        Analyzes the text for regional variations (e.g., regionalisms).
+
+        Args:
+            text (str): The text content to analyze.
+            detected_code (str): The language code of the text.
+
+        Returns:
+            Optional[str]: A regional code (e.g., 'US', 'UK') if detected, otherwise None.
+        """
+        ...
+
+class TTSVoiceSelector(Protocol):
+    """
+    Protocol for classes that select and configure a voice for Text-to-Speech (TTS).
+    """
+    def get_available_voices(self, language_code: Optional[str] = None) -> List[Any]:
+        """
+        Retrieves a list of available TTS voices.
+
+        Args:
+            language_code (Optional[str], optional): A specific language code to filter the voices.
+                                                    Defaults to None.
+
+        Returns:
+            List[Any]: A list of available voice objects.
+        """
+        ...
+    def get_contextual_voice_parameters(
+        self,
+        detected_language_code: str,
+        sentiment_score: float,
+        categories: Optional[List[str]] = None,
+        syntax_info: Optional[Dict[str, Any]] = None,
+        user_gender_preference: Optional[texttospeech.SsmlVoiceGender] = None,
+        regional_code_from_text: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Selects suitable Google Cloud Text-to-Speech voice parameters based on contextual factors.
+
+        Args:
+            detected_language_code (str): The primary language code detected by Natural Language API.
+            sentiment_score (float): The sentiment score of the text (from -1.0 to 1.0).
+            categories (Optional[List[str]], optional): A list of category names for the text. Defaults to None.
+            syntax_info (Optional[Dict[str, Any]], optional): A dictionary containing syntax complexity metrics. Defaults to None.
+            user_gender_preference (Optional[texttospeech.SsmlVoiceGender], optional): User's preferred
+                                                                                        gender for the narrator. Defaults to None.
+            regional_code_from_text (Optional[str], optional): A more specific regional language code
+                                                                derived from text analysis. Defaults to None.
+
+        Returns:
+            Dict[str, Any]: A dictionary containing the selected voice parameters.
+        """
+        ...
+
+class TTSSynthesizer(Protocol):
+    """Protocol for classes that synthesize audio from text."""
+    def synthesize(
+            self,
+            text: str,
+            voice_params: Dict[str, Any],
+            output_filename: str,
+            pitch: float = 0.0,
+            speaking_rate: float = 1.0
+            ) -> bool:
+        """
+        Synthesizes a text string into an audio file.
+
+        Args:
+            text (str): The text content to synthesize.
+            voice_params (Dict[str, Any]): A dictionary of voice parameters.
+            output_filename (str): The name of the output audio file.
+            pitch (float, optional): The speaking pitch of the synthesized voice. Defaults to 0.0.
+            speaking_rate (float, optional): The speaking rate relative to the normal
+                                            speed (0.25 to 4.0). Defaults to 1.0.
+
+        Returns:
+            bool: True if the synthesis was successful, False otherwise.
+        """
+        ...
+
+class UserPreferenceProvider(Protocol):
+    """Protocol for classes that retrieve user-defined preferences for TTS."""
+    def get_gender_preference(self) -> Optional[texttospeech.SsmlVoiceGender]:
+        """
+        Retrieves the user's preferred gender for the TTS voice.
+
+        Returns:
+            Optional[texttospeech.SsmlVoiceGender]: The preferred gender enum
+                                                    (MALE, FEMALE, NEUTRAL), or None
+                                                    if no preference.
+        """
+        ...
 
 
 # --- Abstractions ---
 
 class TextChunker(ABC):
+    """
+    Abstract base class for chunking large text content into smaller, manageable pieces.
+
+    This is useful for preparing text for APIs that have character limits.
+    """
     @abstractmethod
     def chunk(self, text: str, max_chars_per_chunk: int = 4800) -> List[str]:
-        pass
+        """
+        Breaks down a single string of text into a list of smaller text chunks.
+
+        The chunking logic should prioritize maintaining sentence integrity.
+
+        Args:
+            text (str): The large text string to be chunked.
+            max_chars_per_chunk (int, optional): The maximum character limit for each chunk.
+                                                 Defaults to 4800.
+
+        Returns:
+            List[str]: A list of text chunks.
+        """
+        ...
 
 
 # --- Implementation Classes ---
 
-class NLTKRegionalWordLists:
-    # --- Regional Word Lists for English ---
-    # These sets contain words typically associated with US English.
-    US_ENGLISH_WORDS = {
-    "color", "honor", "flavor", "labor", "neighbor", "humor", "favor", "splendor", "tumor", "rumor", "valour",
-    "center", "meter", "liter", "theater", "fiber",
-    "organize", "realize", "recognize", "apologize", "airplane", "truck", "elevator", "sidewalk", "trunk", "fall",
-    "gasoline", "subway", "restroom", "bathroom", "french fries", "cookie", "candy", "garbage", "trash",
-    "faucet", "schedule", "vacation", "movie", "soccer", "period", "parentheses", "brackets", "dash",
-    "mail", "mailbox", "drugstore", "vest", "pants", "diaper", "flashlight", "college", "grades",
-    "gotten", "jelly", "suspenders", "zucchini", "check" # banking
-    # ... add more as you find them ...
-    
-    }
-    # These sets contain words typically associated with British English.
-    GB_ENGLISH_WORDS = {
-        "colour", "honour", "flavour", "labour", "neighbour", "humour", "favour", "splendour", "tumour", "rumour", "valour",
-        "centre", "metre", "litre", "theatre", "fibre",
-        "organise", "realise", "recognise", "apologise", "analyse", "paralyse", "aeroplane", "lorry", "lift", "pavement", "boot", "autumn",
-        "petrol", "underground", "tube", "loo", "toilet", "chips", "crisps", "biscuit", "sweets", "rubbish", "dustbin",
-        "tap", "timetable", "holiday", "film", "football", "full stop", "brackets", "square brackets", "hyphen",
-        "post", "postbox", "chemist's", "waistcoat", "trousers", "nappy", "torch", "university", "marks",
-        "got", "jam", "braces", "courgette", "cheque" # banking
-        # ... add more as you find them ...
+class EnglishRegionalisms:
+    """
+    A repository of words and phrases that are specific to different English regions.
+
+    The words are stored in sets for fast lookup, categorized by their regional code.
+    """
+    REGIONAL_WORDS: Dict[str, Set[str]] = {
+        # These words and phrases are typically associated with US English.
+        "US": {
+            "color", "honor", "flavor", "labor", "neighbor", "humor", "favor", "splendor", "tumor", "rumor", "valour",
+            "center", "meter", "liter", "theater", "fiber",
+            "organize", "realize", "recognize", "apologize", "airplane", "truck", "elevator", "sidewalk", "trunk", "fall",
+            "gasoline", "subway", "restroom", "bathroom", "french fries", "cookie", "candy", "garbage", "trash",
+            "faucet", "schedule", "vacation", "movie", "soccer", "period", "parentheses", "brackets", "dash",
+            "mail", "mailbox", "drugstore", "vest", "pants", "diaper", "flashlight", "college", "grades",
+            "gotten", "jelly", "suspenders", "zucchini", "check" # banking
+            # ... add more as you find them ...
+        },
+        # These words and phrases are typically associated with British English.
+        "GB": {
+            "colour", "honour", "flavour", "labour", "neighbour", "humour", "favour", "splendour", "tumour", "rumour", "valour",
+            "centre", "metre", "litre", "theatre", "fibre",
+            "organise", "realise", "recognise", "apologise", "analyse", "paralyse", "aeroplane", "lorry", "lift", "pavement", "boot", "autumn",
+            "petrol", "underground", "tube", "loo", "toilet", "chips", "crisps", "biscuit", "sweets", "rubbish", "dustbin",
+            "tap", "timetable", "holiday", "film", "football", "full stop", "brackets", "square brackets", "hyphen",
+            "post", "postbox", "chemist's", "waistcoat", "trousers", "nappy", "torch", "university", "marks",
+            "got", "jam", "braces", "courgette", "cheque" # banking
+            # ... add more as you find them ...
+        }
     }
 
 class GoogleLanguageAnalyzer(LanguageAnalyzer):
-    # Minimum text length required for performing sentiment, category, and syntax analysis.
-    # Very short texts often don't provide meaningful results for these analyses.
+    """
+    A concrete implementation of the LanguageAnalyzer protocol using the Google Cloud
+    Natural Language API for various linguistic analyses.
+
+    This class handles text preprocessing, API calls, and returns structured data
+    on language, sentiment, categories, syntax, and regional context.
+    """
     MIN_LENGTH = 50
-    # Proactive delay added before each API call to help prevent hitting rate limits.
     PROACTIVE_DELAY = 0.1
+    DEFAULT_SYNTAX_METRICS = {
+        "num_sentences": 0,
+        "num_tokens": 0,
+        "avg_tokens_per_sentence": 0,
+        "num_complex_clauses": 0
+    }
 
     def __init__(self):
-        # Ensure 'punkt' and 'punkt_tab' tokenizers are downloaded for NLTK.
-        # These tokenizers are used for sentence and word segmentation.
-        # A LookupError is caught if the resource is not found, triggering a download.
+        """
+        Initializes the language analyzer and ensures necessary NLTK data is downloaded.
+        """
         ensure_nltk_resource('tokenizers/punkt')
         ensure_nltk_resource('tokenizers/punkt_tab')
 
     def analyze_language(self, text: str) -> str:
-        """ 
+        """
         Detects the dominant language of the input text using Google Natural Language API.
-
-        Args:
-            text_content (str): The text content to analyze.
-
-        Returns:
-            str: The detected language code (e.g., "en", "fr"). Defaults to "en"
-                if detection fails or text is too short.
+        ... (docstring) ...
         """
         if not text or len(text) < self.MIN_LENGTH:
-            print(f"  Skipping language analysis due to short text length (< {self.MIN_LENGTH} chars). Defaulting to 'en'.")
-            return "en" # Default to English for very short texts
+            logging.info("Skipping language analysis due to short text length (< %d chars). Defaulting to 'en'.", self.MIN_LENGTH)
+            return "en"
 
         client = language_v1.LanguageServiceClient()
         document = language_v1.Document(content=text, type_=language_v1.Document.Type.PLAIN_TEXT)
         try:
-            time.sleep(self.PROACTIVE_DELAY) # Proactive delay to mitigate API rate limits
-            # analyze_sentiment also returns language information
+            time.sleep(self.PROACTIVE_DELAY)
             response = client.analyze_sentiment(request={'document': document})
-            # Return the detected language, or "en" if it's undefined ('und') or empty.
             return response.language if response.language and response.language != 'und' else "en"
         except Exception as e:
-            print(f"Warning: Could not detect language. Error: {e}. Defaulting to 'en'.")
+            logging.warning("Could not detect language. Error: %s. Defaulting to 'en'.", e)
             return "en"
         
     def analyze_sentiment(self, text: str) -> Tuple[float, float]:
         """
         Analyzes the sentiment (emotional tone) of the input text using Google Natural Language API.
-
-        Args:
-            text_content (str): The text content to analyze.
-
-        Returns:
-            tuple: A tuple containing (score, magnitude).
-                Score ranges from -1.0 (negative) to 1.0 (positive).
-                Magnitude indicates the overall emotional force (0.0 to +infinity).
-                Defaults to (0.0, 0.0) if analysis is skipped or fails.
+        ... (docstring) ...
         """
         if not text or len(text) < self.MIN_LENGTH:
-            print(f"  Skipping sentiment analysis due to short text length (< {self.MIN_LENGTH} chars). Defaulting to neutral (0.0, 0.0).")
-            return 0.0, 0.0 # Default to neutral sentiment
+            logging.info("Skipping sentiment analysis due to short text length (< %d chars). Defaulting to neutral (0.0, 0.0).", self.MIN_LENGTH)
+            return 0.0, 0.0
+            
         client = language_v1.LanguageServiceClient()
         document = language_v1.Document(content=text, type_=language_v1.Document.Type.PLAIN_TEXT)
         try:
-            time.sleep(self.PROACTIVE_DELAY) # Proactive delay
+            time.sleep(self.PROACTIVE_DELAY)
             sentiment = client.analyze_sentiment(request={'document': document}).document_sentiment
             return sentiment.score, sentiment.magnitude
         except Exception as e:
-            print(f"Warning: Could not analyze sentiment. Error: {e}. Defaulting to neutral (0.0, 0.0).")
+            logging.warning("Could not analyze sentiment. Error: %s. Defaulting to neutral (0.0, 0.0).", e)
             return 0.0, 0.0
-        
+  
     def analyze_category(self, text: str) -> List[str]:
         """
         Classifies the content into predefined categories using Google Natural Language API.
-
-        Args:
-            text_content (str): The text content to classify.
-
-        Returns:
-            list: A list of strings, where each string is a category name (e.g., "/Arts & Entertainment/Books & Literature").
-                Returns an empty list if analysis is skipped or fails.
+        ... (docstring) ...
         """
         if not text or len(text) < self.MIN_LENGTH:
-            print(f"  Skipping category analysis due to short text length (< {self.MIN_LENGTH} chars). Returning empty list.")
+            logging.info("Skipping category analysis due to short text length (< %d chars). Returning empty list.", self.MIN_LENGTH)
             return []
+            
         client = language_v1.LanguageServiceClient()
         document = language_v1.Document(content=text, type_=language_v1.Document.Type.PLAIN_TEXT)
         try:
-            time.sleep(self.PROACTIVE_DELAY) # Proactive delay
+            time.sleep(self.PROACTIVE_DELAY)
             response = client.classify_text(request={'document': document})
             return [category.name for category in response.categories]
         except Exception as e:
-            print(f"Warning: Could not classify text content. Error: {e}. Returning empty list.")
+            logging.warning("Could not classify text content. Error: %s. Returning empty list.", e)
             return []
     
     def analyze_syntax_complexity(self, text: str) -> Dict[str, Any]:
         """
         Analyzes sentence structure complexity using Google Natural Language API's syntax analysis.
-        This function provides basic metrics that can hint at text complexity, such as:
-        - Number of sentences
-        - Total number of tokens (words, punctuation)
-        - Average tokens per sentence
-        - Number of complex clauses (e.g., adverbial clauses, complement clauses).
-
+        
         Args:
-            text_content (str): The text content to analyze.
+            text (str): The text content to analyze.
 
         Returns:
-            dict: A dictionary containing syntax complexity metrics.
+            Dict[str, Any]: A dictionary containing syntax complexity metrics.
                 Returns default zero values if analysis is skipped or fails.
         """
         if not text or len(text) < self.MIN_LENGTH:
-            print(f"  Skipping syntax analysis due to short text length (< {self.MIN_LENGTH} chars). Returning default metrics.")
-            return {
-                "num_sentences": 0,
-                "num_tokens": 0,
-                "avg_tokens_per_sentence": 0,
-                "num_complex_clauses": 0
-            }
+            logging.info("Skipping syntax analysis due to short text length (< %d chars). Returning default metrics.", self.MIN_LENGTH)
+            return self.DEFAULT_SYNTAX_METRICS
+            
         client = language_v1.LanguageServiceClient()
         document = language_v1.Document(
             content=text, type_=language_v1.Document.Type.PLAIN_TEXT
         )
         try:
-            time.sleep(self.PROACTIVE_DELAY) # Proactive delay
+            time.sleep(self.PROACTIVE_DELAY)
             response = client.analyze_syntax(request={'document': document})
             num_sentences = len(response.sentences)
             num_tokens = len(response.tokens)
             avg_tokens_per_sentence = num_tokens / num_sentences if num_sentences > 0 else 0
 
-            # Define dependency labels typically associated with subordinate or complex clauses.
-            # These labels indicate a grammatical relationship where one clause depends on another.
             clause_labels = ['acl', 'advcl', 'ccomp', 'csubj', 'xcomp', 'csubjpass', 'auxpass']
-
-            # Count tokens that are roots of such clauses.
             num_complex_clauses = sum(
                 1 for token in response.tokens
                 if token.dependency_edge.label.name.lower() in clause_labels
@@ -218,46 +344,56 @@ class GoogleLanguageAnalyzer(LanguageAnalyzer):
                 "num_complex_clauses": num_complex_clauses
             }
         except Exception as e:
-            print(f"Warning: Could not analyze syntax complexity. Error: {e}")
-            print(f"  Error details: {e}")
-            return {
-                "num_sentences": 0,
-                "num_tokens": 0,
-                "avg_tokens_per_sentence": 0,
-                "num_complex_clauses": 0
-            }
+            logging.warning("Could not analyze syntax complexity. Error: %s. Returning default metrics.", e)
+            return self.DEFAULT_SYNTAX_METRICS
 
     def analyze_regional_context(self, text: str, detected_code: str) -> Optional[str]:
-        # Only perform regional analysis for English texts of sufficient length.
+        """
+        Analyzes the text for regional English variations (e.g., US vs. GB).
+
+        Args:
+            text (str): The text content to analyze.
+            detected_code (str): The language code of the text.
+
+        Returns:
+            Optional[str]: The regional code (e.g., 'en-US', 'en-GB') if a strong bias
+                           is detected, otherwise None.
+        """
         if not text or detected_code != "en" or len(text) < self.MIN_LENGTH:
             if detected_code != "en":
-                print(f"  Skipping regional analysis: Not English (detected: {detected_code}).")
+                logging.info("Skipping regional analysis: Not English (detected: %s).", detected_code)
             elif len(text) < self.MIN_LENGTH:
-                print(f"  Skipping regional analysis due to short text length (< {self.MIN_LENGTH} chars).")
+                logging.info("Skipping regional analysis due to short text length (< %d chars).", self.MIN_LENGTH)
             return None
+            
         text_lower = text.lower()
-        # Count occurrences of US-specific words.
-        us_score = sum(text_lower.count(us_word) for us_word in NLTKRegionalWordLists.US_ENGLISH_WORDS)
-        # Count occurrences of GB-specific words.
-        gb_score = sum(text_lower.count(gb_word) for gb_word in NLTKRegionalWordLists.GB_ENGLISH_WORDS)
         
-        print(f"  Regional Analysis (English): US score = {us_score}, GB score = {gb_score}")
+        us_words = EnglishRegionalisms.REGIONAL_WORDS.get("US", set())
+        gb_words = EnglishRegionalisms.REGIONAL_WORDS.get("GB", set())
+        
+        # Count occurrences of regional-specific words and multi-word phrases
+        us_score = sum(text_lower.count(us_word) for us_word in us_words)
+        gb_score = sum(text_lower.count(gb_word) for gb_word in gb_words)
+        
+        logging.info("Regional Analysis (English): US score = %d, GB score = %d", us_score, gb_score)
 
         # Determine regional bias based on the scores.
         # A threshold of 1.5 times more common is used to indicate a "strong" bias.
-        if us_score > 0 and us_score >= gb_score * 1.5: # US words significantly more common
+        if us_score > 0 and us_score >= gb_score * 1.5:
+            logging.info("Strong regional bias detected: en-US.")
             return "en-US"
-        elif gb_score > 0 and gb_score >= us_score * 1.5: # GB words significantly more common
+        elif gb_score > 0 and gb_score >= us_score * 1.5:
+            logging.info("Strong regional bias detected: en-GB.")
             return "en-GB"
         else:
-            # If scores are close or both are low, no strong regional bias is detected.
-            print("  No strong regional bias detected, or scores are too close.")
+            logging.info("No strong regional bias detected, or scores are too close.")
             return None
-
-    
+  
 class GoogleTTSVoiceSelector(TTSVoiceSelector):
-    # Map generic language codes to common regional variants for broader voice search.
-    # This helps in finding suitable voices when only a generic language code (e.g., 'en') is detected.
+    """
+    A TTSVoiceSelector implementation that fetches, caches, and selects a
+    Google Cloud TTS voice based on contextual factors.
+    """
     GENERIC_TO_REGIONAL_MAP = {
         "en": ["en-US", "en-GB", "en-AU", "en-IN"],
         "fr": ["fr-FR", "fr-CA"],
@@ -265,7 +401,6 @@ class GoogleTTSVoiceSelector(TTSVoiceSelector):
         "es": ["es-ES", "es-US", "es-MX"],
         "zh": ["zh-CN", "zh-TW", "zh-HK"],
     }
-    # --- Global Cache for available voices ---
     # Stores the list of available Text-to-Speech voices to avoid repeated API calls.
     available_voices: List[Any] = []
 
@@ -276,262 +411,226 @@ class GoogleTTSVoiceSelector(TTSVoiceSelector):
         Args:
             language_code (str, optional): A specific language code (e.g., "en-US", "fr")
                                         to filter the voices. If None, all available voices
-                                        are returned. Generic language codes (e.g., "en")
-                                        are expanded to common regional variants.
+                                        are returned. Defaults to None.
 
         Returns:
-            list: A list of `texttospeech.Voice` objects matching the criteria.
+            List[Any]: A list of `texttospeech.Voice` objects matching the criteria.
         """
         # Fetch voices only if the cache is empty
         if not self.available_voices:
-            client = texttospeech.TextToSpeechClient()
-            response = client.list_voices()
-            self.available_voices = response.voices
+            try:
+                client = texttospeech.TextToSpeechClient()
+                response = client.list_voices()
+                self.available_voices = response.voices
+                logging.info("Fetched and cached %d available voices.", len(self.available_voices))
+            except Exception as e:
+                logging.error("Failed to fetch voices from Google Cloud: %s", e, exc_info=True)
+                return []
+        
         if not language_code:
             return self.available_voices
-        # Create a list of language codes to check, prioritizing exact match,
-        # then regional variants for generic codes, and generic for regional codes.
+        
         codes_to_check = [language_code]
+        # Logic for expanding language codes
         if len(language_code) == 2 and language_code in self.GENERIC_TO_REGIONAL_MAP:
             codes_to_check.extend(self.GENERIC_TO_REGIONAL_MAP[language_code])
         elif len(language_code) == 5 and language_code[:2] in self.GENERIC_TO_REGIONAL_MAP:
-            # If a regional code is given, also try its generic form if not already included
             if language_code[:2] not in codes_to_check:
                 codes_to_check.append(language_code[:2])
-        # Use a set to avoid duplicate language codes in the search list.
         codes_to_check = list(set(codes_to_check))
+        
         return [
             v for v in self.available_voices
             for voice_lang_code in v.language_codes
             if voice_lang_code in codes_to_check
         ]
 
-    def get_contextual_voice_parameters(self, detected_language_code, sentiment_score, 
-                                        categories = None, syntax_info = None,
-                                        user_gender_preference = None, regional_code_from_text = None):
+    def get_contextual_voice_parameters(self, detected_language_code: str, sentiment_score: float, 
+                                        categories: Optional[List[str]] = None, syntax_info: Optional[Dict[str, Any]] = None,
+                                        user_gender_preference: Optional[texttospeech.SsmlVoiceGender] = None, regional_code_from_text: Optional[str] = None) -> Dict[str, Any]:
         """
-        Selects suitable Google Cloud Text-to-Speech voice parameters (name, pitch, speaking rate, gender)
-        based on various contextual factors:
-        - Detected language and regional variations.
-        - Sentiment score of the text.
-        - Categories identified in the text.
-        - Syntax complexity analysis.
-        - Optional user-specified gender preference.
-
-        Voice selection prioritizes higher-quality voice types (Chirp > Neural2/Studio > Wavenet > Standard).
-        It also attempts to match gender preferences and adjusts pitch/speaking rate dynamically
-        based on the text's characteristics.
+        Selects suitable Google Cloud Text-to-Speech voice parameters based on contextual factors.
 
         Args:
-            detected_language_code (str): The primary language code detected by Natural Language API.
-            sentiment_score (float): The sentiment score of the text (from -1.0 to 1.0).
-            categories (list, optional): A list of category names for the text. Defaults to an empty list.
-            syntax_info (dict, optional): A dictionary containing syntax complexity metrics. Defaults to None.
-            user_gender_preference (texttospeech.SsmlVoiceGender | None, optional): User's preferred
-                                                                                    gender for the narrator.
-                                                                                    None for automatic selection.
-            regional_code_from_text (str | None, optional): A more specific regional language code
-                                                        derived from text analysis (e.g., 'en-US').
+            detected_language_code (str): The primary language code detected.
+            sentiment_score (float): The sentiment score of the text (-1.0 to 1.0).
+            categories (Optional[List[str]], optional): A list of category names for the text. Defaults to None.
+            syntax_info (Optional[Dict[str, Any]], optional): A dictionary of syntax complexity metrics. Defaults to None.
+            user_gender_preference (Optional[texttospeech.SsmlVoiceGender], optional): User's preferred gender. Defaults to None.
+            regional_code_from_text (Optional[str], optional): A more specific regional language code. Defaults to None.
 
         Returns:
-            dict: A dictionary containing the selected voice parameters:
-                "name" (str): The name of the chosen TTS voice.
-                "pitch" (float): The adjusted speaking pitch.
-                "speaking_rate" (float): The adjusted speaking rate.
-                "language_code" (str): The language code of the chosen voice.
-                "voice_gender" (texttospeech.SsmlVoiceGender): The gender of the chosen voice.
+            Dict[str, Any]: A dictionary of selected voice parameters.
         """
-        categories = categories or [] # Ensure categories is a list, default to empty if None
+        categories = categories or []
 
-        # Determine the effective language code to search for voices.
-        # User's preferred regional code from text analysis takes precedence over generic detection.
-        effective_language_search_code = regional_code_from_text if regional_code_from_text else detected_language_code
+        try:
+            effective_language_search_code = regional_code_from_text if regional_code_from_text else detected_language_code
+            voices_for_lang = self.get_available_voices(effective_language_search_code)
 
-        voices_for_lang = self.get_available_voices(effective_language_search_code)
-        
-        # Fallback mechanism if no voices are found for the specific or generic language code.
-        if not voices_for_lang:
-            # If a regional code was tried and failed, try the generic form.
-            if regional_code_from_text and regional_code_from_text != detected_language_code:
-                print(f"  No voices found for specific regional code '{regional_code_from_text}'. Trying generic code '{detected_language_code}'.")
-                voices_for_lang = self.get_available_voices(detected_language_code)
-            
-            # If still no voices, provide a hardcoded default fallback.
             if not voices_for_lang:
-                print(f"Warning: Still no suitable voices found for '{detected_language_code}' after all attempts. Falling back to hardcoded 'en-US-Wavenet-B'.")
-                return {
-                    "name": "en-US-Wavenet-B",
-                    "pitch": 0.0,
-                    "speaking_rate": 1.0,
-                    "language_code": "en-US", # Use a common regional code for fallback
-                    "voice_gender": texttospeech.SsmlVoiceGender.NEUTRAL
-                }
+                if regional_code_from_text and regional_code_from_text != detected_language_code:
+                    logging.info("No voices found for '%s'. Trying generic code '%s'.", regional_code_from_text, detected_language_code)
+                    voices_for_lang = self.get_available_voices(detected_language_code)
 
-        # Prioritize voices by quality and capabilities: Chirp > Neural2/Studio > Wavenet > Standard.
-        chirp_voices = [v for v in voices_for_lang if "Chirp" in v.name]
-        neural2_studio_voices = [v for v in voices_for_lang if "Neural2" in v.name or ("Studio" in v.name and "Chirp" not in v.name)]
-        wavenet_voices = [v for v in voices_for_lang if "Wavenet" in v.name and "Neural2" not in v.name and "Studio" not in v.name and "Chirp" not in v.name]
-        standard_voices = [v for v in voices_for_lang if "Wavenet" not in v.name and "Neural2" not in v.name and "Studio" not in v.name and "Chirp" not in v.name]
-        
-        # Create a list of voice type lists in desired preference order.
-        preferred_voices_list_order = []
-        if chirp_voices:
-            preferred_voices_list_order.append(chirp_voices)
-        if neural2_studio_voices:
-            preferred_voices_list_order.append(neural2_studio_voices)
-        if wavenet_voices:
-            preferred_voices_list_order.append(wavenet_voices)
-        if standard_voices:
-            preferred_voices_list_order.append(standard_voices)
-        
-        # If no voices fit into the preferred categories (unlikely but for robustness),
-        # just use all available voices as the primary list.
-        if not preferred_voices_list_order:
-            preferred_voices_list_order.append(voices_for_lang)
+                if not voices_for_lang:
+                    logging.warning("Still no suitable voices found for '%s'. Falling back to hardcoded default.", detected_language_code)
+                    return {
+                        "name": "en-US-Wavenet-B",
+                        "pitch": 0.0,
+                        "speaking_rate": 1.0,
+                        "language_code": "en-US",
+                        "voice_gender": texttospeech.SsmlVoiceGender.NEUTRAL
+                    }
 
-        selected_voice = None
-        pitch = 0.0
-        speaking_rate = 1.0
-        
-        target_gender = user_gender_preference
-        # If no explicit user preference, infer gender based on sentiment and categories.
-        if target_gender is None:
-            target_gender = texttospeech.SsmlVoiceGender.NEUTRAL # Default
-            if sentiment_score > 0.5: # More strongly positive sentiment
-                target_gender = texttospeech.SsmlVoiceGender.FEMALE
-            elif sentiment_score < -0.5: # More strongly negative sentiment
-                target_gender = texttospeech.SsmlVoiceGender.MALE
+            # Prioritize voices by quality
+            voice_quality_order = ["Chirp", "Neural2", "Studio", "Wavenet", "Standard"]
+            preferred_voices_list_order = []
+            for voice_type in voice_quality_order:
+                voice_list = [v for v in voices_for_lang if voice_type in v.name]
+                if voice_list:
+                    preferred_voices_list_order.append(voice_list)
             
-            # Category-based gender inference (overrides sentiment if applicable).
-            if any("Romance" in c for c in categories):
-                target_gender = texttospeech.SsmlVoiceGender.FEMALE
-            elif any("News" in c for c in categories) or any("Business & Industrial" in c for c in categories) or any("Science" in c for c in categories):
-                target_gender = texttospeech.SsmlVoiceGender.NEUTRAL # Professional/informative tone often neutral
+            if not preferred_voices_list_order:
+                preferred_voices_list_order.append(voices_for_lang)
 
-        # Iterate through preferred voice types to find a voice matching the target gender.
-        for voice_type_list in preferred_voices_list_order:
-            candidates_by_gender = [v for v in voice_type_list if v.ssml_gender == target_gender]
-            if candidates_by_gender:
-                selected_voice = random.choice(candidates_by_gender)
-                break # Found a suitable voice, stop searching
-        
-        # Fallback: If no voice with the exact target gender is found in preferred types,
-        # try to find a Neutral voice.
-        if selected_voice is None:
+            selected_voice = None
+            pitch = 0.0
+            speaking_rate = 1.0
+            
+            target_gender = user_gender_preference or texttospeech.SsmlVoiceGender.NEUTRAL
+            
+            # If no explicit user preference, infer gender based on sentiment and categories.
+            if user_gender_preference is None:
+                if sentiment_score > 0.5:
+                    target_gender = texttospeech.SsmlVoiceGender.FEMALE
+                elif sentiment_score < -0.5:
+                    target_gender = texttospeech.SsmlVoiceGender.MALE
+                
+                if any("Romance" in c for c in categories):
+                    target_gender = texttospeech.SsmlVoiceGender.FEMALE
+                elif any(c in ["News", "Business & Industrial", "Science"] for c in categories):
+                    target_gender = texttospeech.SsmlVoiceGender.NEUTRAL
+
+            # Find a voice matching the target gender, with fallbacks
             for voice_type_list in preferred_voices_list_order:
-                neutral_candidates = [v for v in voice_type_list if v.ssml_gender == texttospeech.SsmlVoiceGender.NEUTRAL]
-                if neutral_candidates:
-                    selected_voice = random.choice(neutral_candidates)
-                    print(f"  Note: Could not find a voice for preferred gender {target_gender.name}. Falling back to a Neutral voice.")
+                candidates_by_gender = [v for v in voice_type_list if v.ssml_gender == target_gender]
+                if candidates_by_gender:
+                    selected_voice = random.choice(candidates_by_gender)
                     break
-        
-        # Final fallback: If no specific or neutral gender voice is found, pick any available voice
-        # from the highest quality list (the first list in `preferred_voices_list_order`).
-        if selected_voice is None:
-            selected_voice = random.choice(preferred_voices_list_order[0])
-            print(f"  Note: Could not find a voice for preferred gender {target_gender.name} or Neutral. Falling back to any available voice ({selected_voice.name}).")
+            
+            if selected_voice is None:
+                for voice_type_list in preferred_voices_list_order:
+                    neutral_candidates = [v for v in voice_type_list if v.ssml_gender == texttospeech.SsmlVoiceGender.NEUTRAL]
+                    if neutral_candidates:
+                        selected_voice = random.choice(neutral_candidates)
+                        logging.info("Could not find a voice for preferred gender %s. Falling back to Neutral.", target_gender.name)
+                        break
+            
+            if selected_voice is None:
+                selected_voice = random.choice(preferred_voices_list_order[0])
+                logging.info("Could not find a voice for preferred gender %s or Neutral. Falling back to any available voice (%s).", target_gender.name, selected_voice.name)
 
+            # Adjust pitch and speaking rate based on context
+            PITCH_SENSITIVITY = 4.0
+            RATE_SENSITIVITY = 0.1
 
-        # Adjust pitch and speaking rate based on sentiment, categories, and syntax complexity.
-        # Sensitivity factors control the maximum adjustment range.
-        PITCH_SENSITIVITY = 4.0 # Max +/- 4 semitones for sentiment
-        RATE_SENSITIVITY = 0.1 # Max +/- 10% speaking rate for sentiment
+            if sentiment_score != 0.0:
+                pitch += sentiment_score * PITCH_SENSITIVITY
+                speaking_rate += sentiment_score * (RATE_SENSITIVITY / 2)
 
-        if sentiment_score > 0:
-            pitch += sentiment_score * PITCH_SENSITIVITY
-            speaking_rate += sentiment_score * (RATE_SENSITIVITY / 2) # Less impact on rate for positive
-        elif sentiment_score < 0:
-            pitch += sentiment_score * PITCH_SENSITIVITY # sentiment_score is negative, so this subtracts
-            speaking_rate += sentiment_score * (RATE_SENSITIVITY / 2) # This would slow it down for negative
+            for cat in categories:
+                if "Science Fiction" in cat or "Fantasy" in cat:
+                    pitch -= 1.0
+                    speaking_rate *= 0.95
+                elif "Romance" in cat:
+                    pitch += 1.5
+                    speaking_rate *= 1.03
+                elif any(c in ["News", "Business & Industrial", "Education"] for c in [cat]):
+                    pitch = 0.0
+                    speaking_rate = 1.0
+                elif "Poetry" in cat or "Literature" in cat:
+                    pitch -= 0.5
+                    speaking_rate *= 0.90
+                elif "Mystery" in cat or "Thriller" in cat:
+                    pitch -= 0.8
+                    speaking_rate *= 0.97
 
-        # Category-specific adjustments for pitch and speaking rate.
-        for cat in categories:
-            if "Science Fiction" in cat or "Fantasy" in cat:
-                pitch -= 1.0 # Slightly deeper tone for genre
-                speaking_rate *= 0.95 # Slightly slower, more deliberate
-            elif "Romance" in cat:
-                pitch += 1.5 # Slightly higher, softer, more engaging
-                speaking_rate *= 1.03 # Slightly faster
-            elif "News" in cat or "Business & Industrial" in cat or "Education" in cat:
-                pitch = 0.0 # Neutral, clear pitch for factual content
-                speaking_rate = 1.0 # Standard rate
-            elif "Poetry" in cat or "Literature" in cat:
-                pitch -= 0.5 # A bit more resonant/contemplative
-                speaking_rate *= 0.90 # Slower, more contemplative
-            elif "Mystery" in cat or "Thriller" in cat:
-                pitch -= 0.8 # Slightly lower, more serious/suspenseful
-                speaking_rate *= 0.97 # A bit slower
+            if syntax_info and syntax_info["num_sentences"] > 0:
+                avg_tokens = syntax_info["avg_tokens_per_sentence"]
+                num_complex_clauses = syntax_info["num_complex_clauses"]
+                if avg_tokens > 20 or (syntax_info["num_sentences"] > 0 and num_complex_clauses / syntax_info["num_sentences"] > 0.3):
+                    speaking_rate *= 0.90
+                    pitch -= 0.5
+                elif avg_tokens < 10:
+                    speaking_rate *= 1.05
 
-        # Syntax complexity adjustments.
-        if syntax_info and syntax_info["num_sentences"] > 0:
-            avg_tokens = syntax_info["avg_tokens_per_sentence"]
-            num_complex_clauses = syntax_info["num_complex_clauses"]
+            pitch = max(-20.0, min(20.0, pitch))
+            speaking_rate = max(0.25, min(4.0, speaking_rate))
 
-            # If average sentence length is high or a significant portion of clauses are complex,
-            # slow down the speaking rate and slightly lower the pitch for better comprehension.
-            if avg_tokens > 20 or (syntax_info["num_sentences"] > 0 and num_complex_clauses / syntax_info["num_sentences"] > 0.3):
-                speaking_rate *= 0.90
-                pitch -= 0.5
-            elif avg_tokens < 10: # Shorter, simpler sentences can be read slightly faster.
-                speaking_rate *= 1.05
+            if "Chirp" in selected_voice.name or "Studio" in selected_voice.name:
+                if pitch != 0.0 or speaking_rate != 1.0:
+                    logging.info("Selected voice '%s' (Chirp/Studio) does not fully support pitch/speaking_rate adjustments. Setting to defaults.", selected_voice.name)
+                    pitch = 0.0
+                    speaking_rate = 1.0
 
-        # Clamp pitch and speaking_rate to valid ranges supported by Google Cloud TTS API.
-        pitch = max(-20.0, min(20.0, pitch))
-        speaking_rate = max(0.25, min(4.0, speaking_rate))
+            final_voice_language_code = selected_voice.language_codes[0]
+            final_voice_gender = selected_voice.ssml_gender
 
-        # Voice-specific parameter limitations: Chirp and Studio voices often don't support
-        # custom pitch/speaking rate adjustments. Reset to defaults if such a voice is selected.
-        if "Chirp" in selected_voice.name or "Studio" in selected_voice.name:
-            if pitch != 0.0 or speaking_rate != 1.0:
-                print(f"  Note: Selected voice '{selected_voice.name}' (Chirp/Studio) does not fully support pitch/speaking_rate adjustments. Setting to defaults (pitch=0, rate=1).")
-                pitch = 0.0
-                speaking_rate = 1.0
-
-        # Extract the final language code and gender from the selected voice object.
-        final_voice_language_code = selected_voice.language_codes[0]
-        final_voice_gender = selected_voice.ssml_gender
-
-        return {
-            "name": selected_voice.name,
-            "pitch": pitch,
-            "speaking_rate": speaking_rate,
-            "language_code": final_voice_language_code,
-            "voice_gender": final_voice_gender
-        }
+            return {
+                "name": selected_voice.name,
+                "pitch": pitch,
+                "speaking_rate": speaking_rate,
+                "language_code": final_voice_language_code,
+                "voice_gender": final_voice_gender
+            }
+        except Exception as e:
+            logging.error("An error occurred during voice selection: %s", e, exc_info=True)
+            # Hardcoded fallback on unexpected error
+            return {
+                "name": "en-US-Wavenet-B",
+                "pitch": 0.0,
+                "speaking_rate": 1.0,
+                "language_code": "en-US",
+                "voice_gender": texttospeech.SsmlVoiceGender.NEUTRAL
+            }
 
 class GoogleTTSSynthesizer(TTSSynthesizer):
+    """
+    An implementation of the TTSSynthesizer protocol that uses the Google Cloud
+    Text-to-Speech API.
+
+    This class includes robust retry logic with exponential backoff for handling
+    transient API errors like rate limits and server unavailability.
+    """
     # Initial delay for retry attempts in case of API errors.
     INITIAL_RETRY_DELAY = 1
     # Maximum number of retries for API calls.
     MAX_API_RETRIES = 5
     # Proactive delay added before each API call to help prevent hitting rate limits.
     PROACTIVE_DELAY = 0.1
-
-    def synthesize(self, text, voice_params, output_filename, pitch = 0.0, speaking_rate = 1.0):
+    
+    def synthesize(self, text: str, voice_params: Dict[str, Any], output_filename: str, pitch: float = 0.0, speaking_rate: float = 1.0) -> bool:
         """
-        Synthesizes speech from the input text using a specified Google Cloud Text-to-Speech voice,
-        including its explicit gender. Implements retry logic for transient API errors
-        (ResourceExhausted, InternalServerError, ServiceUnavailable).
+        Synthesizes speech from the input text using a specified Google Cloud TTS voice.
 
         Args:
-            text_content (str): The text content to convert to speech.
-            voice_name (str): The name of the TTS voice to use (e.g., "en-US-Wavenet-A").
-            language_code (str): The BCP-47 language code for the voice (e.g., "en-US").
-            voice_gender (texttospeech.SsmlVoiceGender): The SSML gender of the voice.
+            text (str): The text content to convert to speech.
+            voice_params (Dict[str, Any]): A dictionary containing voice parameters
+                                            (language_code, name, ssml_gender).
             output_filename (str): The path to save the generated audio file (MP3).
             pitch (float, optional): The speaking pitch of the voice, in semitones
                                     (from -20.0 to 20.0). Defaults to 0.0.
             speaking_rate (float, optional): The speaking rate relative to the normal
                                             speed (0.25 to 4.0). Defaults to 1.0.
-            max_retries (int, optional): Maximum number of times to retry the API call. Defaults to MAX_API_RETRIES.
-            initial_delay (int, optional): Initial delay in seconds before the first retry. Defaults to INITIAL_RETRY_DELAY.
 
         Returns:
             bool: True if speech synthesis was successful and the file was saved, False otherwise.
         """
         client = texttospeech.TextToSpeechClient()
         synthesis_input = texttospeech.SynthesisInput(text=text)
-        voice_params = texttospeech.VoiceSelectionParams(
+        
+        voice_selection_params = texttospeech.VoiceSelectionParams(
             language_code=voice_params["language_code"],
             name=voice_params["name"],
             ssml_gender=voice_params["voice_gender"]
@@ -544,52 +643,57 @@ class GoogleTTSSynthesizer(TTSSynthesizer):
 
         for attempt in range(self.MAX_API_RETRIES + 1):
             try:
-                time.sleep(self.PROACTIVE_DELAY) # Proactive delay before each attempt
+                time.sleep(self.PROACTIVE_DELAY)
                 response = client.synthesize_speech(
-                    input=synthesis_input, voice=voice_params, audio_config=audio_config
+                    input=synthesis_input, voice=voice_selection_params, audio_config=audio_config
                 )
 
-                # Write the audio content to a file
                 with open(output_filename, "wb") as out:
                     out.write(response.audio_content)
-                return True # Synthesis successful
+                logging.info("Audio chunk saved successfully to '%s'.", output_filename)
+                return True
 
-            except ResourceExhausted as e:
-                # Handle rate limit errors with exponential backoff and jitter
+            except (ResourceExhausted, InternalServerError, ServiceUnavailable) as e:
                 if attempt < self.MAX_API_RETRIES:
                     delay = self.INITIAL_RETRY_DELAY * (2 ** attempt) + random.uniform(0, 1)
-                    print(f"  Rate limit hit for chunk. Retrying in {delay:.2f}s (Attempt {attempt + 1}/{self.MAX_API_RETRIES})... Error: {e}")
+                    logging.warning(
+                        "Rate limit or server error for chunk. Retrying in %ss (Attempt %d/%d). Error: %s",
+                        f"{delay:.2f}", attempt + 1, self.MAX_API_RETRIES, e
+                    )
                     time.sleep(delay)
                 else:
-                    print(f"  Max retries reached for rate limit on chunk. Failed to synthesize: {output_filename}. Error: {e}")
-                    return False
-            except (InternalServerError, ServiceUnavailable) as e:
-                # Handle server-side errors with exponential backoff and jitter
-                if attempt < self.MAX_API_RETRIES:
-                    delay = self.INITIAL_RETRY_DELAY * (2 ** attempt) + random.uniform(0, 1)
-                    print(f"  Server error for chunk. Retrying in {delay:.2f}s (Attempt {attempt + 1}/{self.MAX_API_RETRIES})... Error: {e}")
-                    time.sleep(delay)
-                else:
-                    print(f"  Max retries reached for server error on chunk. Failed to synthesize: {output_filename}. Error: {e}")
+                    logging.error(
+                        "Max retries reached for rate limit/server error on chunk. Failed to synthesize: '%s'. Error: %s",
+                        output_filename, e
+                    )
                     return False
             except Exception as e:
-                # Catch any other unexpected errors
-                print(f"  An unexpected error occurred during TTS synthesis for chunk '{output_filename}': {e}")
+                logging.error(
+                    "An unexpected error occurred during TTS synthesis for chunk '%s': %s",
+                    output_filename, e, exc_info=True
+                )
                 return False
-        return False # Should not be reached if max_retries is handled correctly
+        return False
 
 class UserPreference(UserPreferenceProvider):
-    def get_gender_preference(self) -> Optional[int]:
+    """
+    An implementation of the UserPreferenceProvider protocol for retrieving
+    user-defined TTS preferences via command-line input.
+    """
+    def get_gender_preference(self) -> Optional[texttospeech.SsmlVoiceGender]:
         """
         Prompts the user to select a preferred narrator gender for the synthesized speech.
 
         Returns:
-            texttospeech.SsmlVoiceGender | None: The selected SSML voice gender enum
-                                                (MALE, FEMALE, NEUTRAL) or None if the
-                                                user chooses automatic selection (presses Enter).
+            Optional[texttospeech.SsmlVoiceGender]: The selected SSML voice gender enum
+                                                    (MALE, FEMALE, NEUTRAL) or None if the
+                                                    user chooses automatic selection.
         """
         while True:
-            gender_input = input("Choose narrator gender (Male, Female, Neutral, or press Enter for automatic): ").strip().lower()
+            gender_input = input(
+                "Choose narrator gender (Male, Female, Neutral, or press Enter for automatic): "
+            ).strip().lower()
+
             if gender_input == "male":
                 return texttospeech.SsmlVoiceGender.MALE
             elif gender_input == "female":
@@ -597,80 +701,145 @@ class UserPreference(UserPreferenceProvider):
             elif gender_input == "neutral":
                 return texttospeech.SsmlVoiceGender.NEUTRAL
             elif gender_input == "":
-                return None # User chose automatic
+                return None
             else:
-                print("Invalid input. Please type 'Male', 'Female', 'Neutral', or press Enter.")
+                logging.warning("Invalid input. Please type 'Male', 'Female', 'Neutral', or press Enter.")
 
 class DefaultTextChunker(TextChunker):
+    """
+    An implementation of TextChunker that breaks text into chunks,
+    prioritizing paragraph and then sentence integrity.
+    """
     def chunk(self, text: str, max_chars_per_chunk: int = 4800) -> List[str]:
-        # Ensure NLTK punkt is available before tokenizing
+        """
+        Breaks down a single string of text into a list of smaller text chunks.
+
+        The chunking logic first attempts to chunk by paragraph. If a paragraph is
+        too large, it falls back to chunking by sentence.
+
+        Args:
+            text (str): The large text string to be chunked.
+            max_chars_per_chunk (int, optional): The maximum character limit for each chunk.
+                                                 Defaults to 4800.
+
+        Returns:
+            List[str]: A list of text chunks.
+        """
         ensure_nltk_resource('tokenizers/punkt')
+        
         chunks = []
         paragraphs = text.split('\n\n')
         current_chunk = ""
-        for para in paragraphs:
-            para = para.strip()
-            if not para:
-                continue
-            if len(current_chunk) + len(para) + 2 > max_chars_per_chunk and current_chunk:
-                chunks.append(current_chunk.strip())
-                current_chunk = ""
-            if len(para) > max_chars_per_chunk:
-                sentences = nltk.sent_tokenize(para)
-                sentence_chunk = ""
-                for sentence in sentences:
-                    if len(sentence_chunk) + len(sentence) + 1 > max_chars_per_chunk and sentence_chunk:
+
+        try:
+            for para in paragraphs:
+                para = para.strip()
+                if not para:
+                    continue
+
+                # If the paragraph is too big to fit in the current chunk, finalize it
+                if len(current_chunk) + len(para) + 2 > max_chars_per_chunk and current_chunk:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = ""
+
+                # If the paragraph itself is larger than the max chunk size, break it into sentences
+                if len(para) > max_chars_per_chunk:
+                    sentences = nltk.sent_tokenize(para)
+                    sentence_chunk = ""
+                    for sentence in sentences:
+                        # If adding a new sentence exceeds the max size, finalize the current sentence chunk
+                        if len(sentence_chunk) + len(sentence) + 1 > max_chars_per_chunk and sentence_chunk:
+                            chunks.append(sentence_chunk.strip())
+                            sentence_chunk = ""
+                        sentence_chunk += sentence + " "
+                    if sentence_chunk:
                         chunks.append(sentence_chunk.strip())
-                        sentence_chunk = ""
-                    sentence_chunk += sentence + " "
-                if sentence_chunk:
-                    chunks.append(sentence_chunk.strip())
-            else:
-                if current_chunk:
-                    current_chunk += "\n\n" + para
                 else:
-                    current_chunk = para
-        if current_chunk:
-            chunks.append(current_chunk.strip())
+                    # Otherwise, add the paragraph to the current chunk
+                    if current_chunk:
+                        current_chunk += "\n\n" + para
+                    else:
+                        current_chunk = para
+            
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+        
+        except Exception as e:
+            # Fallback for any unexpected errors during tokenization or chunking
+            print(f"An unexpected error occurred during text chunking: {e}")
+            chunks = [text] # Return the whole text as a single chunk if chunking fails
+
         return chunks
 
 
 # --- NLTK resource helper ---
 
-def ensure_nltk_resource(resource: str, download_if_missing: bool = True, quiet: bool = True):
+def ensure_nltk_resource(resource: str,
+    download_if_missing: bool = True,
+    quiet: bool = True
+    ) -> bool:
     """
-    Checks if the given NLTK resource is available, and downloads it if missing.
+    Checks if the given NLTK resource is available and downloads it if missing.
 
     Args:
-        resource (str): The resource path, e.g. 'tokenizers/punkt'
-        download_if_missing (bool): Whether to download if missing.
-        quiet (bool): Whether to suppress download output.
+        resource (str): The resource path, e.g., 'tokenizers/punkt'.
+        download_if_missing (bool, optional): Whether to download the resource if it is not found.
+                                             Defaults to True.
+        quiet (bool, optional): Whether to suppress download output. Defaults to True.
+
+    Returns:
+        bool: True if the resource is available (either found or successfully downloaded),
+              False otherwise.
     """
     try:
         nltk.data.find(resource)
+        logging.info("NLTK resource '%s' is available.", resource)
+        return True
     except LookupError:
         if download_if_missing:
-            print(f"NLTK resource '{resource}' not found. Downloading...")
-            nltk.download(resource.split('/')[-1], quiet=quiet)
+            try:
+                logging.info("NLTK resource '%s' not found. Downloading...", resource)
+                nltk.download(resource.split('/')[-1], quiet=quiet)
+                logging.info("NLTK resource '%s' downloaded successfully.", resource)
+                return True
+            except Exception as e:
+                logging.error("Failed to download NLTK resource '%s': %s", resource, e)
+                return False
+        else:
+            logging.warning("NLTK resource '%s' not found, and download was not requested.", resource)
+            return False
+    except Exception as e:
+        logging.error("An unexpected error occurred while checking for NLTK resource '%s': %s", resource, e)
+        return False
 
 
 # -- High-level Service ---
 
 class AudioSynthesisService:
     """
-    High-level service for analyzing text, selecting contextual voice parameters, chunking for TTS API, and synthesizing audio.
+    High-level service for analyzing text, selecting contextual voice parameters,
+    chunking for TTS API, and synthesizing audio.
     """
-    
-    MAX_CHARS_PER_TTS_CHUNK = 4800 # Google TTS limit
+    MAX_CHARS_PER_TTS_CHUNK = 4800  # Google TTS limit
 
     def __init__(
         self,
-        language_analyzer,
-        voice_selector,
-        tts_synthesizer,
-        user_pref_provider,
-        chunker = None
-    ):
+        language_analyzer: LanguageAnalyzer,
+        voice_selector: TTSVoiceSelector,
+        tts_synthesizer: TTSSynthesizer,
+        user_pref_provider: UserPreferenceProvider,
+        chunker: Optional[TextChunker] = None
+    ) -> None:
+        """
+        Initializes the service with all its dependencies.
+        
+        Args:
+            language_analyzer: An object that performs linguistic analysis.
+            voice_selector: An object that selects voice parameters.
+            tts_synthesizer: An object that synthesizes audio from text.
+            user_pref_provider: An object that provides user preferences.
+            chunker: An object to chunk the text. Defaults to a DefaultTextChunker.
+        """
         self.language_analyzer = language_analyzer
         self.voice_selector = voice_selector
         self.tts_synthesizer = tts_synthesizer
@@ -681,8 +850,8 @@ class AudioSynthesisService:
         self,
         text: str,
         output_audio_path: str,
-        temp_audio_dir: str = None,
-        user_gender_preference: Optional[int] = None
+        temp_audio_dir: Optional[str] = None,
+        user_gender_preference: Optional[texttospeech.SsmlVoiceGender] = None
     ) -> Optional[str]:
         """
         Chunk text, analyze, select TTS parameters, synthesize, and combine audio.
@@ -690,79 +859,99 @@ class AudioSynthesisService:
         Args:
             text (str): Text content to analyze and synthesize.
             output_audio_path (str): Path where the output audio file will be saved.
-            temp_audio_dir (str, optional): Directory for intermediate audio chunks. 
-            user_gender_preference (int, optional): Gender enum for voice (or None for auto).
+            temp_audio_dir (str, optional): Directory for intermediate audio chunks.
+                                            Defaults to a sub-directory of the output path.
+            user_gender_preference (Optional[texttospeech.SsmlVoiceGender], optional):
+                                            User's preferred gender for the voice.
+                                            Defaults to None for automatic selection.
 
         Returns:
-            str: Path to final audiobook MP3 if sucessful, else None.
+            Optional[str]: Path to final audiobook MP3 if successful, else None.
         """
+        logging.info("Starting audio synthesis pipeline.")
 
-        # Chunking
-        chunks = self.chunker.chunk(text, max_chars_per_chunk=self.MAX_CHARS_PER_TTS_CHUNK)
-        if not chunks:
-            print("No text chunks generated for audiobook.")
-            return None
-        
+        try:
+            # Chunking
+            chunks = self.chunker.chunk(text, max_chars_per_chunk=self.MAX_CHARS_PER_TTS_CHUNK)
+            if not chunks:
+                logging.error("No text chunks generated for audiobook.")
+                return None
+            
+            # Analysis (use full text for consistent parameters)
+            logging.info("Performing linguistic analysis on the full text...")
+            lang_code = self.language_analyzer.analyze_language(text)
+            sentiment_score, _ = self.language_analyzer.analyze_sentiment(text)
+            categories = self.language_analyzer.analyze_category(text)
+            syntax_info = self.language_analyzer.analyze_syntax_complexity(text)
+            regional_code = self.language_analyzer.analyze_regional_context(text, lang_code)
 
-        # Analysis (use full text for consistent parameters)
-        lang_code = self.language_analyzer.analyze_language(text)
-        sentiment_score, sentiment_magnitude = self.language_analyzer.analyze_sentiment(text)
-        categories = self.language_analyzer.analyze_category(text)
-        syntax_info = self.language_analyzer.analyze_syntax_complexity(text)
-        regional_code = self.language_analyzer.analyze_regional_context(text, lang_code)
+            if user_gender_preference is None:
+                user_gender_preference = self.user_pref_provider.get_gender_preference()
 
-        if user_gender_preference is None:
-            user_gender_preference = self.user_pref_provider.get_gender_preference()
-
-        voice_params = self.voice_selector.get_contextual_voice_parameters(
-            detected_language_code=lang_code,
-            sentiment_score=sentiment_score,
-            categories=categories,
-            syntax_info=syntax_info,
-            user_gender_preference=user_gender_preference,
-            regional_code_from_text=regional_code,
-        )
-
-        # Prepare temp dir
-        if not temp_audio_dir:
-            temp_audio_dir = os.path.join(os.path.dirname(output_audio_path), "temp_audio_chunks")
-        os.makedirs(temp_audio_dir, exist_ok=True)
-
-        audio_segments = []
-        for i, chunk in enumerate(chunks):
-            if not chunk.strip():
-                continue
-            temp_audio_file = os.path.join(temp_audio_dir, f"chunk_{i:04d}.mp3")
-            success = self.tts_synthesizer.synthesize(
-                text=chunk, 
-                voice_params=voice_params,
-                output_filename=temp_audio_file,
-                pitch=voice_params["pitch"],
-                speaking_rate=voice_params["speaking_rate"]
+            logging.info("Selecting contextual voice parameters...")
+            voice_params = self.voice_selector.get_contextual_voice_parameters(
+                detected_language_code=lang_code,
+                sentiment_score=sentiment_score,
+                categories=categories,
+                syntax_info=syntax_info,
+                user_gender_preference=user_gender_preference,
+                regional_code_from_text=regional_code,
             )
-            if success:
-                try:
-                    audio_segments.append(AudioSegment.from_mp3(temp_audio_file))
-                except Exception as e:
-                    print(f"Error loading chunk {i}: {e}")
-            else:
-                with open(os.path.join(temp_audio_dir, f"failed_chunk_{i:04d}.txt"), "w", encoding="utf-8") as err_f:
-                    err_f.write(chunk)
 
-        if not audio_segments:
-            print("No audio segments were successfully generated for the audiobook. Exiting.")
-            return None
+            # Prepare temp dir for audio chunks
+            if not temp_audio_dir:
+                temp_audio_dir = os.path.join(os.path.dirname(output_audio_path), "temp_audio_chunks")
+            os.makedirs(temp_audio_dir, exist_ok=True)
+            logging.info("Temporary audio directory created at '%s'.", temp_audio_dir)
 
-        # Combine audio
-        combined_audio = AudioSegment.empty()
-        for segment in audio_segments:
-            combined_audio += segment
-        combined_audio.export(output_audio_path, format="mp3")
+            audio_segments = []
+            for i, chunk in enumerate(chunks):
+                if not chunk.strip():
+                    continue
+                temp_audio_file = os.path.join(temp_audio_dir, f"chunk_{i:04d}.mp3")
+                
+                logging.info("Synthesizing chunk %d of %d...", i + 1, len(chunks))
+                success = self.tts_synthesizer.synthesize(
+                    text=chunk,
+                    voice_params=voice_params,
+                    output_filename=temp_audio_file,
+                    pitch=voice_params["pitch"],
+                    speaking_rate=voice_params["speaking_rate"]
+                )
+                
+                if success:
+                    try:
+                        audio_segments.append(AudioSegment.from_mp3(temp_audio_file))
+                    except (CouldntDecodeError, FileNotFoundError) as e:
+                        logging.error("Error loading chunk %d from '%s': %s", i, temp_audio_file, e)
+                        # The synthesizer already logs the error, so we can just continue
+                else:
+                    # The synthesizer already logs the error, so we just log a high-level message
+                    logging.warning("Failed to synthesize chunk %d. Saving failed chunk to a text file for review.", i)
+                    with open(os.path.join(temp_audio_dir, f"failed_chunk_{i:04d}.txt"), "w", encoding="utf-8") as err_f:
+                        err_f.write(chunk)
+
+            if not audio_segments:
+                logging.error("No audio segments were successfully generated for the audiobook. Exiting.")
+                return None
+
+            # Combine audio
+            logging.info("Combining all audio segments into a single file...")
+            combined_audio = AudioSegment.empty()
+            for segment in audio_segments:
+                combined_audio += segment
+            combined_audio.export(output_audio_path, format="mp3")
+            
+            logging.info("Audiobook created successfully: '%s'", output_audio_path)
+            
+            # Clean up
+            logging.info("Cleaning up temporary audio files in '%s'.", temp_audio_dir)
+            for file_name in os.listdir(temp_audio_dir):
+                os.remove(os.path.join(temp_audio_dir, file_name))
+            os.rmdir(temp_audio_dir)
+            
+            return output_audio_path
         
-        # Clean up
-        for file_name in os.listdir(temp_audio_dir):
-            os.remove(os.path.join(temp_audio_dir, file_name))
-        os.rmdir(temp_audio_dir)
-
-        print(f"Audiobook created successfully: '{output_audio_path}'")
-        return output_audio_path
+        except Exception as e:
+            logging.error("An unexpected error occurred during audio synthesis: %s", e, exc_info=True)
+            return None
