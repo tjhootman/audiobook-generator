@@ -251,6 +251,14 @@ class GutenbergCleaner(TextCleaner):
 
         return text
 
+class NoOpCleaner(TextCleaner):
+    """
+    A TextCleaner implementation that returns the text unchanged.
+    This is used for local files that are assumed to be already clean.
+    """
+    def clean(self, text: str, **kwargs) -> str:
+        return text
+
 class FileTextExporter(TextExporter):
     """Exports text content to a file, handling directory creation and I/O errors."""
     def export(self, content: str, destination: str) -> bool:
@@ -502,6 +510,10 @@ class TextProcessingService:
         # 1. Extract metadata before cleaning
         raw_title, sanitized_title = get_book_title(raw_text)
         author = get_book_author(raw_text)
+
+        logging.info("Detected Title: %s", raw_title)
+        logging.info("Detected Author: %s", author)
+        logging.info("Sanitized Title for filename: %s", sanitized_title)
 
         # 2. Export raw text (using the sanitized title for the filename)
         raw_export_path = os.path.join(os.path.dirname(raw_output_path), f"{sanitized_title}_raw.txt")

@@ -1,40 +1,77 @@
 """Main program for converting text files to audiobooks."""
 import os
 import logging
-from typing import Optional
+import sys
+from typing import Optional, Any, Dict, List, Tuple
 from dotenv import load_dotenv
 
+# --- Abstractions and implementations for Text Processing ---
 from text_processing import (
     GutenbergSource,
     GutenbergCleaner,
+    NoOpCleaner,
     FileTextExporter,
     TextProcessingService,
+    LocalFileSource,
+    TextCleaner,
     get_user_book_url,
     setup_output_directory,
+    get_user_local_file
 )
 
+# --- Abstractions and implementations for Audio Synthesis ---
 from audio_synthesis import (
     GoogleLanguageAnalyzer,
     GoogleTTSVoiceSelector,
     GoogleTTSSynthesizer,
     UserPreference,
     AudioSynthesisService,
+    TTSVoiceSelector,
+    TTSSynthesizer,
+    LanguageAnalyzer,
+    UserPreferenceProvider,
+    DefaultTextChunker,
 )
 
+# --- Abstractions and implementations for Image Generation ---
 from image_generation import (
     GoogleAuthenticator,
     VertexAIImageGenerator,
     PILImageSaver,
     CoverImageService,
     get_env_or_raise,
+    ImageGenerator,
+    ImageSaver,
+    Authenticator,
 )
 
-from video_processing import AudiobookVideoRenderer, AudiobookVideoService
+# --- Abstractions and implementations for Video Processing ---
+from video_processing import (
+    AudiobookVideoRenderer,
+    AudiobookVideoService,
+    VideoRenderer
+)
 
-from youtube_upload import YouTubeOauthAuthenticator, GoogleAPIYouTubeUploader, YouTubeVideoService
+# --- Abstractions and implementations for YouTube Upload ---
+from youtube_upload import (
+    YouTubeOauthAuthenticator,
+    GoogleAPIYouTubeUploader,
+    YouTubeVideoService,
+    YouTubeAuthenticator,
+    YouTubeUploader,
+)
 
 # Load .env variables
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 
 def run_video_youtube_pipeline(
     audio_file: str,
@@ -47,26 +84,12 @@ def run_video_youtube_pipeline(
 ) -> Optional[str]:
     """
     Orchestrates the creation of an audiobook video and its optional upload to YouTube.
-
-    Args:
-        audio_file (str): Path to the final audiobook audio file.
-        cover_image_file (str): Filename of the cover image.
-        book_title (str): The title of the book.
-        book_author (str): The author of the book.
-        output_dir (str): The output directory for the video file.
-        upload_to_youtube (bool, optional): Whether to upload the video to YouTube.
-                                            Defaults to True.
-
-    Returns:
-        Optional[str]: The path to the created video file, or None if the process fails.
     """
     logging.info("Starting video and YouTube upload pipeline.")
-
-    # Initialize uploader and service as None
+    
     uploader = None
     video_service = None
 
-    # --- YouTube Authenticaion ---
     try:
         if upload_to_youtube:
             logging.info("YouTube upload requested. Starting authentication...")
@@ -102,9 +125,8 @@ def run_video_youtube_pipeline(
             video_title = f"{book_title} Audiobook"
             video_description = f"Audiobook version of '{book_title}' by {book_author}."
             video_tags = ["audiobook", "book", "literature", "classic"]
-            video_privacy = "public",
-            made_for_kids = False
-
+            video_privacy = "public"
+            
             logging.info("Attempting to upload video to YouTube...")
             uploaded_video_info = video_service.upload(
                 file_path=output_video_file,
@@ -127,141 +149,149 @@ def run_video_youtube_pipeline(
     except Exception as e:
         logging.error("An error occurred in the video/YouTube pipeline: %s", e, exc_info=True)
         return None
-
+    
 
 def generate_full_audiobook(output_base_dir="audiobook_output"):
-
-
-    # --- Setup Output directory ---
-    setup_output_directory(output_base_dir)
-
-
-    # --- User Input ---
-
-    # Book URL
-    book_url = get_user_book_url()
-    if not book_url:
-        print("No URL provided. Exiting.")
-        return
     
-    # User gender preference
-    user_pref_provider = UserPreference()
-    user_gender_preference = user_pref_provider.get_gender_preference()
+    logging.info("Starting full audiobook generation pipeline.")
 
-    # Video Generation and YouTube Upload preferences
-    do_video = input("Would you like to create a video and upload to YouTube? (y/n): ").strip().lower() == "y"
+    try:
+        # --- Setup Output directory ---
+        setup_output_directory(output_base_dir)
 
-    
-    # --- Text Processing ---
+        # --- User Input: Select Source ---
+        source_choice = input("Select text source (1: URL, 2: Local File): ").strip()
 
-    # Text Processing Service Setup
-    source = GutenbergSource(book_url)
-    cleaner = GutenbergCleaner()
-    exporter = FileTextExporter()
+        source = None
+        cleaner = None
+        book_data_source = ""
 
-    text_processor = TextProcessingService(
-        source=source,
-        cleaner=cleaner,
-        exporter=exporter
-    )
+        if source_choice == "1":
+            book_url = get_user_book_url()
+            if not book_url:
+                logging.info("No URL provided. Exiting.")
+                return
+            source = GutenbergSource(book_url)
+            cleaner = GutenbergCleaner()
+            book_data_source = book_url
+            
+        elif source_choice == "2":
+            local_file_path = get_user_local_file()
+            if not local_file_path:
+                logging.info("No local file path provided. Exiting.")
+                return
+            source = LocalFileSource(local_file_path)
+            cleaner = NoOpCleaner()
+            book_data_source = local_file_path
 
-    print("Processing book text (download, clean, extract metadata)...")
-    
-    # Define placeholder paths for the service to construct the final file paths
-    # based on the book title.
-    raw_placeholder_path = os.path.join(output_base_dir, "raw_placeholder.txt")
-    clean_placeholder_path = os.path.join(output_base_dir, "cleaned_placeholder.txt")
+        else:
+            logging.error("Invalid source choice. Exiting.")
+            return
 
-    book_data = text_processor.process_text(
-        raw_output_path=raw_placeholder_path,
-        clean_output_path=clean_placeholder_path
-    )
+        user_pref_provider = UserPreference()
+        user_gender_preference = user_pref_provider.get_gender_preference()
+
+        do_video = input("Would you like to create a video and upload to YouTube? (y/n): ").strip().lower() == "y"
         
-    if not book_data:
-        print("Text processing failed. Exiting.")
-        return
-    
-    # Extract metadata and content from returned dictionary
-    raw_book_title = book_data["raw_title"]
-    book_author = book_data["author"]
-    sanitized_book_title = book_data["sanitized_title"]
-    cleaned_text_content = book_data["cleaned_text"]
-
-    print(f"Detected Title: {raw_book_title}")
-    print(f"Detected Author: {book_author}")
-
-    # Create a book-specific output directory
-    book_output_dir = os.path.join(output_base_dir, sanitized_book_title)
-    setup_output_directory(book_output_dir)
-    print(f"Book output directory: {book_output_dir}")
-
-    # Create cover image
-    prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"
-    output_image_file = f"{sanitized_book_title}.png"
-
-    # --- Configuration for Vertex AI Imagen ---
-    # IMPORTANT: Replace with your actual Google Cloud Project ID and Location.
-    # Ensure Vertex AI API is enabled in your Google Cloud Project.
-    # Authenticate by running `gcloud auth application-default login` in your terminal.
-    # It's good practice to get these from environment variables.
-    PROJECT_ID = get_env_or_raise('GOOGLE_CLOUD_PROJECT_ID', 'Google Cloud Project ID')
-    LOCATION = get_env_or_raise('GOOGLE_CLOUD_LOCATION', 'Google Cloud Location')
-
-    # Instantiate the concrete implementations of the protocols
-    google_authenticator = GoogleAuthenticator(project=PROJECT_ID, location=LOCATION)
-    # The VertexAIImageGenerator constructor also needs project and location
-    image_generator = VertexAIImageGenerator(project_id=PROJECT_ID, location=LOCATION)
-    image_saver = PILImageSaver()
-
-    # Now, pass the concrete instances to the service
-    cover_image_service = CoverImageService(
-        authenticator=google_authenticator,
-        image_generator=image_generator,
-        image_saver=image_saver,
-    )
-
-    cover_image_service.create_cover_image(prompt, book_output_dir, output_image_file)
-
-    # --- Audiobook Synthesis ---
-
-    # Audio Synthesis Service Setup
-    language_analyzer = GoogleLanguageAnalyzer()
-    voice_selector = GoogleTTSVoiceSelector()
-    tts_synthesizer = GoogleTTSSynthesizer()
-    user_pref_provider = UserPreference()
-    audio_service = AudioSynthesisService(
-        language_analyzer,
-        voice_selector,
-        tts_synthesizer,
-        user_pref_provider
-    )
-
-    # Syntesize Audiobook (the service handles chunking and temp files)
-    output_audio_file = os.path.join(book_output_dir, f"{sanitized_book_title}_audiobook.mp3")
-    audio_result = audio_service.synthesize_audio(
-        text=cleaned_text_content,
-        output_audio_path=output_audio_file,
-        temp_audio_dir=os.path.join(book_output_dir, "temp_audio_chunks"),
-        user_gender_preference=user_gender_preference
-    )
-
-    if not audio_result:
-        print("No audio segments were successfully generated for the audiobook. Exiting.")
-        return
-
-    if do_video:
-        run_video_youtube_pipeline(
-            audio_file=output_audio_file,
-            cover_image_file=output_image_file,
-            book_title=raw_book_title,
-            book_author=book_author,
-            output_dir=book_output_dir,
-            upload_to_youtube=True
+        # --- Text Processing ---
+        exporter = FileTextExporter()
+        text_processor = TextProcessingService(
+            source=source,
+            cleaner=cleaner,
+            exporter=exporter
         )
-    else:
-        print("Skipping video generation and YouTube upload.")
+
+        logging.info("Processing book text from '%s'...", book_data_source)
+        raw_placeholder_path = os.path.join(output_base_dir, "raw_placeholder.txt")
+        clean_placeholder_path = os.path.join(output_base_dir, "cleaned_placeholder.txt")
+
+        book_data = text_processor.process_text(
+            raw_output_path=raw_placeholder_path,
+            clean_output_path=clean_placeholder_path
+        )
+            
+        if not book_data:
+            logging.error("Text processing failed. Exiting.")
+            return
+    
+        try:
+            raw_book_title = book_data["raw_title"]
+            book_author = book_data["author"]
+            sanitized_book_title = book_data["sanitized_title"]
+            cleaned_text_content = book_data["cleaned_text"]
+        except KeyError as e:
+            logging.error("TextProcessingService returned an invalid dictionary: Missing key %s", e)
+            logging.error("Text processing failed. Exiting.")
+            return
+
+        logging.info("Detected Title: %s", raw_book_title)
+        logging.info("Detected Author: %s", book_author)
+
+        book_output_dir = os.path.join(output_base_dir, sanitized_book_title)
+        setup_output_directory(book_output_dir)
+        logging.info("Book output directory: %s", book_output_dir)
+
+        # --- Image Generation ---
+        PROJECT_ID = get_env_or_raise('GOOGLE_CLOUD_PROJECT_ID', 'Google Cloud Project ID')
+        LOCATION = get_env_or_raise('GOOGLE_CLOUD_LOCATION', 'Google Cloud Location')
+
+        google_authenticator = GoogleAuthenticator(project=PROJECT_ID, location=LOCATION)
+        image_generator = VertexAIImageGenerator(project_id=PROJECT_ID, location=LOCATION)
+        image_saver = PILImageSaver()
+
+        cover_image_service = CoverImageService(
+            authenticator=google_authenticator,
+            image_generator=image_generator,
+            image_saver=image_saver,
+        )
+
+        prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"
+        output_image_file = f"{sanitized_book_title}.png"
+        cover_image_service.create_cover_image(prompt, book_output_dir, output_image_file)
+
+        # --- Audiobook Synthesis ---
+        language_analyzer = GoogleLanguageAnalyzer()
+        voice_selector = GoogleTTSVoiceSelector()
+        tts_synthesizer = GoogleTTSSynthesizer()
+        user_pref_provider = UserPreference()
+        audio_service = AudioSynthesisService(
+            language_analyzer,
+            voice_selector,
+            tts_synthesizer,
+            user_pref_provider
+        )
+
+        output_audio_file = os.path.join(book_output_dir, f"{sanitized_book_title}_audiobook.mp3")
+        audio_result = audio_service.synthesize_audio(
+            text=cleaned_text_content,
+            output_audio_path=output_audio_file,
+            temp_audio_dir=os.path.join(book_output_dir, "temp_audio_chunks"),
+            user_gender_preference=user_gender_preference
+        )
+
+        if not audio_result:
+            logging.error("No audio segments were successfully generated for the audiobook. Exiting.")
+            return
+
+        if do_video:
+            run_video_youtube_pipeline(
+                audio_file=output_audio_file,
+                cover_image_file=output_image_file,
+                book_title=raw_book_title,
+                book_author=book_author,
+                output_dir=book_output_dir,
+                upload_to_youtube=True,
+                made_for_kids=made_for_kids_input
+            )
+        else:
+            logging.info("Skipping video generation and YouTube upload.")
+
+        logging.info("Full pipeline completed successfully.")
+    
+    except Exception as e:
+        logging.error("An error occurred in the full audiobook pipeline: %s", e, exc_info=True)
+        return
 
 
 if __name__ == "__main__":
-    # Entry point of the script when executed directly.
     generate_full_audiobook()
