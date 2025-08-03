@@ -4,7 +4,7 @@ text for Text-to-Speech (TTS) conversion. This includes downloading content,
 extracting metadata, and sanitizing text.
 """
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, List, Tuple
 import logging
 import urllib.parse
 import os
@@ -289,55 +289,166 @@ class FileTextExporter(TextExporter):
 # --- Utility Functions ---
 
 def setup_output_directory(directory_path: str):
-    print("Setting up output directory...")
-    os.makedirs(directory_path, exist_ok=True)
-    print(f"Output directory '{directory_path}' ensured.")
+    """
+    Ensures that the specified output directory exists, creating it if necessary.
+
+    Args:
+        directory_path (str): The path to the directory to be created.
+    """
+    logging.info("Setting up output directory...")
+    try:
+        os.makedirs(directory_path, exist_ok=True)
+        logging.info("Output directory '%s' ensured.", directory_path)
+    except PermissionError as e:
+        logging.error("Permission denied when creating directory '%s': %s", directory_path, e)
+    except Exception as e:
+        logging.error("An unexpected error occurred while creating directory '%s': %s", directory_path, e)
 
 def get_user_book_url() -> str:
+    """
+    Prompts the user for a Project Gutenberg URL and validates its format.
+
+    The function continuously prompts the user until a valid URL is provided.
+    The user can type 'q' or 'quit' to exit the function.
+
+    Returns:
+        Optional[str]: The validated URL provided by the user, or None if the user quits.
+    """
+
     while True:
-        user_url = input("Please enter the Project Gutenberg URL for the raw text of the book (e.g., https://www.gutenberg.org/cache/epub/76/pg76.txt): ")
-        if user_url.strip():
-            if user_url.startswith("http://www.gutenberg.org") or user_url.startswith("https://www.gutenberg.org"):
+        user_url = input(
+            "Please enter the Project Gutenberg URL for the raw text of the book "
+            "(e.g., https://www.gutenberg.org/cache/epub/76/pg76.txt) or 'q' to quit: ").strip()
+        
+        if user_url.lower() in ['q', 'quit']:
+            return None
+        
+        if not user_url:
+            logging.warning('URL cannot be empty. Please try again.')
+            continue
+
+        try:
+            parsed_url = urllib.parse.urlparse(user_url)
+
+            # Check for a valid scheme, domain, and a .txt file extension in the path
+            is_valid_gutenberg_url = (
+                parsed_url.scheme in ['http', 'https'] and
+                "gutenberg.org" in parsed_url.netloc and
+                parsed_url.path.lower().endswith('.txt')
+            )
+            
+            if is_valid_gutenberg_url:
                 return user_url
             else:
-                print("Invalid URL format. Please enter a Project Gutenberg URL.")
-        else:
-            print("URL cannot be empty. Please try again.")
+                logging.warning("Invalid URL format. Please ensure it is a Project Gutenberg raw text (.txt) URL.")
+        except Exception as e:
+            logging.error("An unexpected error occurred during URL validation: %s", e)
+            logging.warning("Please try entering the URL again.")
 
 def get_user_local_file() -> str:
-    local_file_path = input("Enter the path to your local TXT file: ")
-    try:
-        return local_file_path
-    except FileNotFoundError:
-        print(f"Error: File not found at {local_file_path}. Exiting.")
-        return
-    except Exception as e:
-        print(f"Error reading local file: {e}. Exiting.")
-        return
+    """
+    Prompts the user for a local file path and validates its existence and permissions.
 
-def get_book_title(text_content: str) -> tuple[str, str]:
+    The function continuously prompts the user until a valid file path is provided.
+    The user can type 'q' or 'quit' to exit the function.
+
+    Returns:
+        Optional[str]: The validated, absolute file path, or None if the user quits.
+    """
+    while True:
+        local_file_path = input("Enter the path to your local TXT file or 'q' to quit: ").strip()
+
+        if local_file_path.lower() in ['q', 'quit']:
+            return None
+
+        if not local_file_path:
+            logging.warning("File path cannot be empty. Please try again.")
+            continue
+
+        # Get the absolute path for consistent validation and later use
+        abs_path = os.path.abspath(local_file_path)
+
+        # Proactive checks to ensure the path is a valid, readable file
+        if not os.path.exists(abs_path):
+            logging.warning("Error: File not found at '%s'. Please try again.", abs_path)
+            continue
+
+        if not os.path.isfile(abs_path):
+            logging.warning("Error: Path '%s' is not a file. Please try again.", abs_path)
+            continue
+        
+        if not os.access(abs_path, os.R_OK):
+            logging.warning("Error: No read permissions for file '%s'. Please try again.", abs_path)
+            continue
+
+        # Check for a .txt extension (as before)
+        if not abs_path.lower().endswith('.txt'):
+            logging.warning(
+                "Warning: The file '%s' does not have a .txt extension. "
+                "This may cause unexpected behavior.", abs_path
+            )
+
+        # If all checks pass, return the validated absolute path
+        return abs_path
+
+def get_book_title(text_content: str, limit: int = 20) -> tuple[str, str]:
+    """
+    Extracts the raw and sanitized book title from text metadata.
+
+    The function searches the first `limit` lines of the text for a line starting with "Title:".
+    The sanitized title is suitable for use as a filename.
+
+    Args:
+        text_content (str): The full text content of the book.
+        limit (int, optional): The maximum number of lines to search for the title. Defaults to 20.
+
+    Returns:
+        tuple[str, str]: A tuple containing the raw title and the sanitized title.
+                         Returns ("unknown_book", "unknown_book") if no title is found.
+    """
     default_title = "unknown_book"
     lines = text_content.splitlines()
-    for i, line in enumerate(lines[:20]):
+
+    for line in lines[:limit]:
         match = re.match(r'Title:\s*(.*)', line.strip(), re.IGNORECASE)
         if match:
             raw_title = match.group(1).strip()
+
             if not raw_title:
                 return (default_title, default_title)
+
+            # Sanitize the title for use as a filename
+            # This regex replaces illegal filename characters and whitespace with underscores
             sanitized_title = re.sub(r'[\\/:*?"<>|,;]', '', raw_title)
             sanitized_title = re.sub(r'\s+', '_', sanitized_title)
             sanitized_title = sanitized_title.strip('._')
+
             return (raw_title, sanitized_title if sanitized_title else default_title)
     return (default_title, default_title)
 
-def get_book_author(text_content: str) -> str:
+def get_book_author(text_content: str, limit: int = 20) -> str:
+    """
+    Extracts the author's name from text metadata.
+
+    The function searches the first `limit` lines of the text for a line starting with "Author:".
+
+    Args:
+        text_content (str): The full text content of the book.
+        limit (int, optional): The maximum number of lines to search for the author.
+                               Defaults to 20.
+
+    Returns:
+        str: The raw author's name. Returns "unknown_author" if no author is found.
+    """
     default_author = "unknown_author" 
     lines = text_content.splitlines()
-    for i, line in enumerate(lines[:20]):
+
+    for line in lines[:limit]:
         match = re.match(r'Author:\s*(.*)', line.strip(), re.IGNORECASE)
         if match:
             raw_author = match.group(1).strip()
-            return raw_author if raw_author else default_author
+            return raw_author or default_author
+
     return default_author
 
 
