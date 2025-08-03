@@ -24,7 +24,7 @@ class TextSource(ABC):
 
 class TextCleaner(ABC):
     @abstractmethod
-    def clean(self, text: str, **kwargs) -> str:
+    def clean(self, text: str) -> str:
         pass
 
 class TextExporter(ABC):
@@ -132,34 +132,66 @@ class GutenbergCleaner(TextCleaner):
     standardizing formatting for Text-to-Speech conversion.
 
     Args:
-        TextCleaner (_type_): _description_
+        text (str): Project Gutenberg text
+        raw_title (str): Raw book title
     """
-    def clean(self, text: str, raw_title: str="", file_path: Optional[str] = None) -> str:
-        start_marker = f"*** START OF THE PROJECT GUTENBERG EBOOK {raw_title.upper()} ***"
-        end_marker = f"*** END OF THE PROJECT GUTENBERG EBOOK {raw_title.upper()} ***"
+    def clean(self, text: str, raw_title: str="") -> str:
+        # --- Header/Footer Cleaning Logic ---
+        start_match = end_match = None
 
-        start_index = text.find(start_marker)
-        if start_index != -1:
-            end_of_start_marker_line = text.find('\n', start_index + len(start_marker))
-            if end_of_start_marker_line != -1:
-                text = text[end_of_start_marker_line + 1:].lstrip()
+        # Primary Logic: Find markers using a generic regex
+        header_pattern = r"^\*\*\* START OF THE PROJECT GUTENBERG EBOOK.*?\*\*\*$"
+        footer_pattern = r"^\*\*\* END OF THE PROJECT GUTENBERG EBOOK.*?\*\*\*$"
+        start_match = re.search(header_pattern, text, flags=re.MULTILINE | re.IGNORECASE | re.DOTALL)
+        end_match = re.search(footer_pattern, text, flags=re.MULTILINE | re.IGNORECASE | re.DOTALL)
+
+        if start_match and end_match:
+            logging.info("Found generic start and end markers. Slicing text.")
+            start_index = start_match.end()
+            end_index = end_match.start()
+            text = text[start_index:end_index].strip()
+
+        # Fallback Logic: Try a title-specific search if the generic one fails ---
+        elif raw_title:
+            logging.warning("Generic markers not found. Attempting title-specific fallback.")
+            
+            # Create title-specific patterns, escaping special characters in the title
+            title_start_pattern = re.escape(f"*** START OF THE PROJECT GUTENBERG EBOOK {raw_title.upper()}") + ".*?\n"
+            title_end_pattern = re.escape(f"*** END OF THE PROJECT GUTENBERG EBOOK {raw_title.upper()}")
+            
+            title_start_match = re.search(title_start_pattern, text, flags=re.IGNORECASE | re.DOTALL)
+            title_end_match = re.search(title_end_pattern, text, flags=re.IGNORECASE | re.DOTALL)
+
+            if title_start_match and title_end_match:
+                logging.info("Fallback successful. Found title-specific markers. Slicing text.")
+                start_index = title_start_match.end()
+                end_index = title_end_match.start()
+                text = text[start_index:end_index].strip()
             else:
-                text = text[start_index + len(start_marker):].lstrip()
+                logging.warning("Failed to find title-specific markers. Proceeding with un-sliced text.")
+        
         else:
-            print(f"Warning: The start marker '{start_marker}' was not found in '{file_path or '[raw text]'}'.")
+            logging.warning("No markers found. Proceeding with un-sliced text.")
 
-        end_index = text.find(end_marker)
-        if end_index != -1:
-            text = text[:end_index].rstrip()
-        else:
-            print(f"Warning: The end marker '{end_marker}' was not found in '{file_path or '[raw text]'}'.")
-
+        # --- Core Cleaning Logic ---
+        # Fix hyphenated words broken across line breaks
         text = re.sub(r'(\w+)-\s*\n\s*(\w+)', r'\1\2', text)
-        text = re.sub(r'\n\s*\n+', 'PARAGRAPH_BREAK_PLACEHOLDER', text)
-        text = re.sub(r'\s*\n\s*', ' ', text)
-        text = text.replace('PARAGRAPH_BREAK_PLACEHOLDER', '\n\n')
+
+        # Replace multiple newlines with a paragraph break (two newlines)
+        # and replace single newlines with a space.
+        def replace_newlines(match):
+            newlines = match.group(0)
+            if newlines.count('\n') > 1:
+                return '\n\n'
+            else:
+                return ' '
+        
+        text = re.sub(r'\s*\n\s*', replace_newlines, text)
+
+        # Additional cleanup
         text = text.replace('_', ' ')
         text = re.sub(r' {2,}', ' ', text).strip()
+
         return text
 
 class FileTextExporter(TextExporter):
