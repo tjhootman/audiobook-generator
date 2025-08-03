@@ -4,7 +4,7 @@ text for Text-to-Speech (TTS) conversion. This includes downloading content,
 extracting metadata, and sanitizing text.
 """
 from abc import ABC, abstractmethod
-from typing import Optional, List, Tuple
+from typing import Optional
 import logging
 import urllib.parse
 import os

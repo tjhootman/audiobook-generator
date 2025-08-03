@@ -148,6 +148,32 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
     setup_output_directory(book_output_dir)
     print(f"Book output directory: {book_output_dir}")
 
+    # Create cover image
+    prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"
+    output_image_file = f"{sanitized_book_title}.png"
+
+    # --- Configuration for Vertex AI Imagen ---
+    # IMPORTANT: Replace with your actual Google Cloud Project ID and Location.
+    # Ensure Vertex AI API is enabled in your Google Cloud Project.
+    # Authenticate by running `gcloud auth application-default login` in your terminal.
+    # It's good practice to get these from environment variables.
+    PROJECT_ID = get_env_or_raise('GOOGLE_CLOUD_PROJECT_ID', 'Google Cloud Project ID')
+    LOCATION = get_env_or_raise('GOOGLE_CLOUD_LOCATION', 'Google Cloud Location')
+
+    # Instantiate the concrete implementations of the protocols
+    google_authenticator = GoogleAuthenticator(project=PROJECT_ID, location=LOCATION)
+    # The VertexAIImageGenerator constructor also needs project and location
+    image_generator = VertexAIImageGenerator(project_id=PROJECT_ID, location=LOCATION)
+    image_saver = PILImageSaver()
+
+    # Now, pass the concrete instances to the service
+    cover_image_service = CoverImageService(
+        authenticator=google_authenticator,
+        image_generator=image_generator,
+        image_saver=image_saver,
+    )
+
+    cover_image_service.create_cover_image(prompt, book_output_dir, output_image_file)
 
     # --- Audiobook Synthesis ---
 
@@ -176,26 +202,6 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
         print("No audio segments were successfully generated for the audiobook. Exiting.")
         return
 
-    # Create cover image
-    prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook"
-    output_image_file = f"{sanitized_book_title}.png"
-
-    # --- Configuration for Vertex AI Imagen ---
-    # IMPORTANT: Replace with your actual Google Cloud Project ID and Location.
-    # Ensure Vertex AI API is enabled in your Google Cloud Project.
-    # Authenticate by running `gcloud auth application-default login` in your terminal.
-    # It's good practice to get these from environment variables.
-    PROJECT_ID = get_env_or_raise('GOOGLE_CLOUD_PROJECT_ID', 'Google Cloud Project ID')
-    LOCATION = get_env_or_raise('GOOGLE_CLOUD_LOCATION', 'Google Cloud Location')
-
-    cover_image_service = CoverImageService(
-        authenticator=GoogleAuthenticator(),
-        image_generator=VertexAIImageGenerator(PROJECT_ID, LOCATION),
-        image_saver=PILImageSaver(),
-    )
-    cover_image_service.create_cover_image(prompt, book_output_dir, output_image_file)
-
-    
     if do_video:
         run_video_youtube_pipeline(
             audio_file=output_audio_file,
