@@ -6,10 +6,10 @@ extracting metadata, and sanitizing text.
 from abc import ABC, abstractmethod
 from typing import Optional
 import logging
+import urllib.parse
 import os
 import re
 import requests
-import urllib.parse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -18,29 +18,64 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # --- Abstractions ---
 
 class TextSource(ABC):
+    """Abstract base class for all text sources."""
     @abstractmethod
     def get_text(self) -> Optional[str]:
+        """
+        Retrieves text content from a source.
+
+        Returns:
+            Optional[str]: The text content as a string, or None if retrieval fails.
+        """
         pass
 
 class TextCleaner(ABC):
+    """
+    Abstract base class for all text cleaning implementations.
+    The method signature is flexible to accommodate different cleaning needs.
+    """
     @abstractmethod
-    def clean(self, text: str) -> str:
+    def clean(self, text: str, **kwargs) -> str:
+        """
+        Sanitizes and formats a given text string.
+
+        Args:
+            text (str): The raw text content to be cleaned.
+            **kwargs: Flexible keyword arguments for specific cleaner implementations.
+
+        Returns:
+            str: The cleaned and sanitized text.
+        """
         pass
 
 class TextExporter(ABC):
+    """Abstract base class for all text exporters."""
     @abstractmethod
     def export(self, content: str, destination: str) -> bool:
+        """
+        Exports text content to a specified destination.
+
+        Args:
+            content (str): The text content to be exported.
+            destination (str): The target location for the export.
+
+        Returns:
+            bool: True if the export was successful, False otherwise.
+        """
         pass
 
 # --- Implementation Classes ---
 
 class GutenbergSource(TextSource):
-    """A TextSource implementation for downloading raw text files from Project Gutenberg.
+    """A TextSource implementation for downloading raw text files from Project Gutenberg."""
 
-    Args:
-        url (str): The URL for the Project Gutenberg raw text file.
-    """
     def __init__(self, url: str):
+        """
+        Initializes the GutenbergSource with a URL and validates its format.
+
+        Args:
+            url (str): The URL for the Project Gutenberg raw text file.
+        """
         # Proactively validate the URL format
         parsed_url = urllib.parse.urlparse(url)
         if not all([parsed_url.scheme, parsed_url.netloc]):
@@ -49,6 +84,12 @@ class GutenbergSource(TextSource):
         self.url = url
 
     def get_text(self) -> Optional[str]:
+        """
+        Downloads text content from the specified URL.
+
+        Returns:
+            Optional[str]: The text content if the download is successful, None otherwise.
+        """
         logging.info("Attempting to download from: %s", self.url)
 
         # Define a timeout for the request and a user-agent header
@@ -89,18 +130,27 @@ class GutenbergSource(TextSource):
             return None
 
 class LocalFileSource(TextSource):
-    """A TextSource implementation for reading text from a local file path.
+    """A TextSource implementation for reading text from a local file path."""
 
-    Args:
-        filepath (str): The local file path to read from.
-        encoding (str, optional): The character encoding of the file. Defaults to 'utf-8'.
-    """
     def __init__(self, filepath: str, encoding: str = 'utf-8'):
+        """
+        Initializes the LocalFileSource with a file path and encoding.
+
+        Args:
+            filepath (str): The local file path to read from.
+            encoding (str, optional): The character encoding of the file. Defaults to 'utf-8'.
+        """
         # Normalize the path in the constructor to ensure consistency
         self.filepath = os.path.normpath(os.path.abspath(filepath))
         self.encoding = encoding
 
     def get_text(self) -> Optional[str]:
+        """
+        Reads text content from the specified local file.
+
+        Returns:
+            Optional[str]: The text content if the file is read successfully, None otherwise.
+        """
         logging.info("Attempting to read file from: %s", self.filepath)
 
         # Proactively check if the path points to a file
@@ -129,13 +179,20 @@ class LocalFileSource(TextSource):
    
 class GutenbergCleaner(TextCleaner):
     """Cleans text from Project Gutenberg, removing headers, footers, and
-    standardizing formatting for Text-to-Speech conversion.
+    standardizing formatting for Text-to-Speech conversion."""
 
-    Args:
-        text (str): Project Gutenberg text
-        raw_title (str): Raw book title
-    """
     def clean(self, text: str, raw_title: str="") -> str:
+        """
+        Performs a two-step cleaning process on the Project Gutenberg text.
+
+        Args:
+            text (str): The raw text content from Project Gutenberg.
+            raw_title (str, optional): The raw book title, used as a fallback for finding markers.
+                                       Defaults to "".
+
+        Returns:
+            str: The cleaned and sanitized text content.
+        """
         # --- Header/Footer Cleaning Logic ---
         start_match = end_match = None
 
@@ -195,9 +252,20 @@ class GutenbergCleaner(TextCleaner):
         return text
 
 class FileTextExporter(TextExporter):
+    """Exports text content to a file, handling directory creation and I/O errors."""
     def export(self, content: str, destination: str) -> bool:
+        """
+        Exports text content to a specified file.
+
+        Args:
+            content (str): The text content to be exported.
+            destination (str): The full path to the output file.
+
+        Returns:
+            bool: True if the export was successful, False otherwise.
+        """
         if not content:
-            print("Warning: No cleaned content to export.")
+            logging.warning("No cleaned content to export.")
             return False
         try:
             output_dir = os.path.dirname(destination)
@@ -205,10 +273,17 @@ class FileTextExporter(TextExporter):
                 os.makedirs(output_dir, exist_ok=True)
             with open(destination, 'w', encoding='utf-8') as f:
                 f.write(content)
-            print(f"Successfully exported text to '{destination}'")
+            logging.info("Successfully exported text to %s", destination)
             return True
+        except PermissionError as e:
+            logging.error("Permission denied when writing to file %s: %s", destination, e)
+            return False
+        except IOError as e:
+            logging.error("An I/O error occurred while writing to file %s: %s", destination, e)
+            return False
         except Exception as e:
-            print(f"Error in exporting text: {e}")
+            # A final, general catch-all for unexpected issues
+            logging.error("An unexpected error occurred in exporting text: %s", e)
             return False
 
 # --- Utility Functions ---
