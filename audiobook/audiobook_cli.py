@@ -1,5 +1,7 @@
 """Main program for converting text files to audiobooks."""
 import os
+import logging
+from typing import Optional
 from dotenv import load_dotenv
 
 from text_processing import (
@@ -41,45 +43,71 @@ def run_video_youtube_pipeline(
     book_author: str,
     output_dir: str,
     upload_to_youtube: bool = True
-):
-    # Create video for audiobook
-    renderer = AudiobookVideoRenderer()
-    service = AudiobookVideoService(renderer)
+) -> Optional[str]:
+    """
+    Orchestrates the creation of an audiobook video and its optional upload to YouTube.
 
-    output_video_file = os.path.join(output_dir, f"{book_title}_audiobook.mp4")
-    output_image_path = os.path.join(output_dir, cover_image_file)
-    service.renderer.render_video(output_image_path, audio_file, output_video_file, None, 24)
+    Args:
+        audio_file (str): Path to the final audiobook audio file.
+        cover_image_file (str): Filename of the cover image.
+        book_title (str): The title of the book.
+        book_author (str): The author of the book.
+        output_dir (str): The output directory for the video file.
+        upload_to_youtube (bool, optional): Whether to upload the video to YouTube.
+                                            Defaults to True.
 
-    if upload_to_youtube:
-        # Upload video to YouTube Channel
-        authenticator = YouTubeAuthenticator()
-        uploader = YouTubeUploader(authenticator)
-        video_service = YouTubeVideoService(uploader)
+    Returns:
+        Optional[str]: The path to the created video file, or None if the process fails.
+    """
+    logging.info("Starting video and YouTube upload pipeline.")
 
-        video_file = output_video_file
-        video_title = f"{book_title} Audiobook"
-        video_description = f"Audiobook version of '{book_title}' by {book_author}."
-        video_tags = ["audiobook", "book", "literature", "classic"]
-        video_privacy = "public" # Can be "public", "private", or "unlisted"
+    try:
+        # Create a renderer instance with default settings
+        renderer = AudiobookVideoRenderer(fps=24)
+        service = AudiobookVideoService(renderer)
 
-        uploaded_video_info = video_service.upload(
-            file_path=video_file,
-            title=video_title,
-            description=video_description,
-            tags=video_tags,
-            privacy_status=video_privacy
+        output_video_file = os.path.join(output_dir, f"{book_title}_audiobook.mp4")
+        output_image_path = os.path.join(output_dir, cover_image_file)
+
+        # Correctly call the service's create_video method
+        service.create_video(
+            image_path=output_image_path,
+            audio_path=audio_file,
+            output_video_path=output_video_file,
+            intro_video_path=None # No intro video for now
         )
 
-        if uploaded_video_info:
-            print("\nUpload complete. Video details:")
-            print(f"Title: {uploaded_video_info['snippet']['title']}")
-            print(f"Description: {uploaded_video_info['snippet']['description']}")
-            print(f"Privacy Status: {uploaded_video_info['status']['privacyStatus']}")
-            print(f"Video ID: {uploaded_video_info['id']}")
-        else:
-            print("\nVideo upload failed.")
-        pass
-    return output_video_file
+        if upload_to_youtube:
+            # Upload video to YouTube Channel
+            authenticator = YouTubeAuthenticator()
+            uploader = YouTubeUploader(authenticator)
+            video_service = YouTubeVideoService(uploader)
+
+            video_title = f"{book_title} Audiobook"
+            video_description = f"Audiobook version of '{book_title}' by {book_author}."
+            video_tags = ["audiobook", "book", "literature", "classic"]
+            video_privacy = "public"
+
+            logging.info("Attempting to upload video to YouTube...")
+            uploaded_video_info = video_service.upload(
+                file_path=output_video_file,
+                title=video_title,
+                description=video_description,
+                tags=video_tags,
+                privacy_status=video_privacy
+            )
+
+            if uploaded_video_info:
+                logging.info("YouTube upload complete. Video details: %s", uploaded_video_info)
+            else:
+                logging.error("Video upload failed. Check YouTube API settings and permissions.")
+        
+        logging.info("Pipeline completed successfully.")
+        return output_video_file
+
+    except Exception as e:
+        logging.error("An error occurred in the video/YouTube pipeline: %s", e, exc_info=True)
+        return None
 
 
 def generate_full_audiobook(output_base_dir="audiobook_output"):

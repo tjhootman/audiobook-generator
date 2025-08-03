@@ -1,89 +1,191 @@
 """Module containing functions for creating video from audiobooks."""
 
 import os
-from moviepy import ImageClip, AudioFileClip, VideoFileClip, concatenate_videoclips
+import logging
 from typing import Optional, Protocol
+from moviepy import ImageClip, AudioFileClip, VideoFileClip, concatenate_videoclips
+
+# --- Custom exceptions ---
+
+class RenderingError(Exception):
+    """Custom exception raised for errors during video rendering."""
+    pass
 
 # --- Interface Definitions ---
 
-class IVideoRenderer(Protocol):
-    def render_video(
-            self,
-            image_path: str,
-            audio_path: str,
-            output_video_path: Optional[str] = None,
-            fps: int = 24
+class VideoRenderer(Protocol):
+    """Protocol for classes that render a video from an image and an audio file."""
+    def __init__(
+        self,
+        fps: int = 24,
+        video_codec: str = "libx264",
+        audio_codec: str = "aac"
     ) -> None:
+        """
+        Initializes the renderer with video and audio settings.
+
+        Args:
+            fps (int, optional): The frames per second for the output video. Defaults to 24.
+            video_codec (str, optional): The codec to use for the video stream. Defaults to "libx264".
+            audio_codec (str, optional): The codec to use for the audio stream. Defaults to "aac".
+        """
         ...
 
-# --- Implmentation Classes ---
-
-class AudiobookVideoRenderer(IVideoRenderer):
     def render_video(
-            self,
-            image_path: str,
-            audio_path: str,
-            output_video_path: str,
-            intro_video_path: Optional[str] = None,
-            fps: int = 24
-    ) -> None:
-        if not os.path.exists(image_path):
-            print(f"Error: Image file not found at '{image_path}'")
-            return
-        if not os.path.exists(audio_path):
-            print(f"Error: Audio file not found at '{audio_path}'")
-            return
- 
-        try:
-            # Load the audio clip
-            audio_clip = AudioFileClip(audio_path)
-
-            # Create an image clip. The duration of the video will be the duration of the audio.
-            image_clip = ImageClip(image_path, duration=audio_clip.duration)
-
-            # Set the audio of the image clip
-            image_clip.audio = audio_clip
-
-            # Initialize a list to hold all video clips
-            clips_to_concatenate = []
-
-            # If an intro video path is provided, load it and add to the list
-            if intro_video_path:
-                if not os.path.exists(intro_video_path):
-                    print(f"Warning: Intro video file not found at '{intro_video_path}'. Skipping intro.")
-                else:
-                    intro_clip = VideoFileClip(intro_video_path)
-                    clips_to_concatenate.append(intro_clip)
-                    # Optionally, set image_clip size to match intro_clip for consistency:
-                    # image_clip = image_clip.set_size(intro_clip.size)
-
-            # Add the main audiobook video (image with audio) to the list
-            clips_to_concatenate.append(image_clip)
-            
-            # Concatenate all clips
-            # Using method="compose" handles different resolutions by centering smaller clips
-            final_video_clip = concatenate_videoclips(clips_to_concatenate, method="compose")
-
-            # Write the final video file
-            final_video_clip.write_videofile(output_video_path, fps=fps, codec="libx264", audio_codec="aac")
-
-            print(f"Video created successfully at '{output_video_path}'")
-
-        except Exception as e:
-            print(f"An error occurred: {e}")
-
-# --- High-level Service  ---
-
-class AudiobookVideoService:
-    def __init__(self, renderer: IVideoRenderer):
-        self.renderer = renderer
-
-    def create_video(
-            self,
+        self,
         image_path: str,
         audio_path: str,
         output_video_path: str,
         intro_video_path: Optional[str] = None,
-        fps: int = 24
     ) -> None:
-        self.renderer.render_video(image_path, audio_path, output_video_path, intro_video_path, fps)
+        """
+        Renders a video by combining a static image with an audio track.
+
+        Args:
+            image_path (str): The file path to the static image.
+            audio_path (str): The file path to the audio file.
+            output_video_path (str): The file path to save the output video.
+            intro_video_path (Optional[str], optional): The file path to an optional intro video clip.
+                                                        Defaults to None.
+        """
+        ...
+
+# --- Implmentation Classes ---
+
+class AudiobookVideoRenderer(VideoRenderer):
+    """
+    A VideoRenderer implementation that uses the moviepy library to create
+    a video from an image and an audio file, with an optional intro.
+    """
+    def __init__(
+        self,
+        fps: int = 24,
+        video_codec: str = "libx264",
+        audio_codec: str = "aac"
+    ):
+        """
+        Initializes the renderer with video and audio settings.
+
+        Args:
+            fps (int, optional): The frames per second for the output video. Defaults to 24.
+            video_codec (str, optional): The codec to use for the video stream. Defaults to "libx264".
+            audio_codec (str, optional): The codec to use for the audio stream. Defaults to "aac".
+        """
+        self.fps = fps
+        self.video_codec = video_codec
+        self.audio_codec = audio_codec
+
+    def render_video(
+        self,
+        image_path: str,
+        audio_path: str,
+        output_video_path: str,
+        intro_video_path: Optional[str] = None,
+    ) -> None:
+        """
+        Renders a video by combining a static image with an audio track.
+
+        Args:
+            image_path (str): The file path to the static image.
+            audio_path (str): The file path to the audio file.
+            output_video_path (str): The file path to save the output video.
+            intro_video_path (Optional[str], optional): The file path to an optional intro video clip.
+                                                        Defaults to None.
+        
+        Raises:
+            RenderingError: If a required file is not found or an error occurs during rendering.
+        """
+        if not os.path.exists(image_path):
+            msg = f"Error: Image file not found at '{image_path}'"
+            logging.error(msg)
+            raise RenderingError(msg)
+        if not os.path.exists(audio_path):
+            msg = f"Error: Audio file not found at '{audio_path}'"
+            logging.error(msg)
+            raise RenderingError(msg)
+ 
+        try:
+            logging.info("Starting video rendering process.")
+
+            audio_clip = AudioFileClip(audio_path)
+            image_clip = ImageClip(image_path, duration=audio_clip.duration)
+            image_clip.audio = audio_clip
+            clips_to_concatenate = []
+
+            if intro_video_path:
+                if not os.path.exists(intro_video_path):
+                    logging.warning("Intro video file not found at '%s'. Skipping intro.", intro_video_path)
+                else:
+                    intro_clip = VideoFileClip(intro_video_path)
+                    clips_to_concatenate.append(intro_clip)
+                    logging.info("Intro video clip loaded successfully.")
+
+            clips_to_concatenate.append(image_clip)
+            
+            final_video_clip = concatenate_videoclips(clips_to_concatenate, method="compose")
+
+            logging.info("Writing final video file to '%s'", output_video_path)
+            final_video_clip.write_videofile(
+                output_video_path,
+                fps=self.fps,
+                codec=self.video_codec,
+                audio_codec=self.audio_codec,
+                logger='bar'
+            )
+
+            logging.info("Video created successfully.")
+
+        except (IOError, FileNotFoundError, ValueError) as e:
+            # Catch standard I/O and value-related exceptions raised by moviepy
+            msg = f"A moviepy or I/O error occurred during video rendering: {e}"
+            logging.error(msg, exc_info=True)
+            raise RenderingError(msg) from e
+        except Exception as e:
+            # A final, generic catch-all for unexpected issues
+            msg = f"An unexpected error occurred during video rendering: {e}"
+            logging.error(msg, exc_info=True)
+            raise RenderingError(msg) from e
+
+# --- High-level Service  ---
+
+class AudiobookVideoService:
+    """
+    A service that orchestrates the end-to-end process of creating an audiobook video.
+    
+    This service is responsible for calling the video renderer with the necessary
+    input files.
+    """
+    def __init__(self, renderer: VideoRenderer) -> None:
+        """
+        Initializes the service with a concrete video renderer implementation.
+        
+        Args:
+            renderer (VideoRenderer): An object that handles the video rendering process.
+        """
+        self.renderer = renderer
+
+    def create_video(
+            self,
+            image_path: str,
+            audio_path: str,
+            output_video_path: str,
+            intro_video_path: Optional[str] = None
+    ) -> None:
+        """
+        Creates an audiobook video by combining an image and an audio file.
+
+        Args:
+            image_path (str): The file path to the static image.
+            audio_path (str): The file path to the audio file.
+            output_video_path (str): The file path to save the output video.
+            intro_video_path (Optional[str], optional): The file path to an optional intro video clip.
+                                                        Defaults to None.
+        """
+        logging.info("Audiobook video creation service starting...")
+        self.renderer.render_video(
+            image_path,
+            audio_path,
+            output_video_path,
+            intro_video_path
+        )
+        logging.info("Audiobook video creation service complete.")
