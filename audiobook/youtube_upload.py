@@ -44,7 +44,8 @@ class YouTubeUploader(Protocol):
             description: str,
             category_id: str = "22",
             tags: Optional[List[str]] = None,
-            privacy_status: str = "private"
+            privacy_status: str = "private",
+            made_for_kids: bool = False
     ) -> Optional[Dict]:
         """
         Uploads a video file to YouTube.
@@ -176,7 +177,8 @@ class GoogleAPIYouTubeUploader(YouTubeUploader):
         description: str,
         category_id: str = "22",
         tags: Optional[List[str]] = None,
-        privacy_status: str = "private"
+        privacy_status: str = "private",
+        made_for_kids: bool = False
     ) -> Optional[Dict]:
         """
         Uploads a video to a YouTube channel.
@@ -216,7 +218,8 @@ class GoogleAPIYouTubeUploader(YouTubeUploader):
                 "categoryId": category_id,
             },
             "status": {
-                "privacyStatus": privacy_status
+                "privacyStatus": privacy_status,
+                "madeForKids": made_for_kids
             }
         }
 
@@ -275,7 +278,8 @@ class YouTubeVideoService:
         description: str,
         category_id: str = "22",
         tags: Optional[List[str]] = None,
-        privacy_status: str = "private"
+        privacy_status: str = "private",
+        made_for_kids: bool = False
     ) -> Optional[Dict]:
         """
         Uploads a video to YouTube using the provided details.
@@ -301,7 +305,8 @@ class YouTubeVideoService:
             description=description,
             category_id=category_id,
             tags=tags,
-            privacy_status=privacy_status
+            privacy_status=privacy_status,
+            made_for_kids=made_for_kids
         )
         
         if uploaded_video_info:

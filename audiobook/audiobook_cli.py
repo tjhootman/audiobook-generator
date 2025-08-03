@@ -42,7 +42,8 @@ def run_video_youtube_pipeline(
     book_title: str,
     book_author: str,
     output_dir: str,
-    upload_to_youtube: bool = True
+    upload_to_youtube: bool = True,
+    made_for_kids: bool = False
 ) -> Optional[str]:
     """
     Orchestrates the creation of an audiobook video and its optional upload to YouTube.
@@ -96,11 +97,13 @@ def run_video_youtube_pipeline(
             intro_video_path=None
         )
 
+        # --- YouTube Uploading ---
         if upload_to_youtube and video_service:
             video_title = f"{book_title} Audiobook"
             video_description = f"Audiobook version of '{book_title}' by {book_author}."
             video_tags = ["audiobook", "book", "literature", "classic"]
-            video_privacy = "public"
+            video_privacy = "public",
+            made_for_kids = False
 
             logging.info("Attempting to upload video to YouTube...")
             uploaded_video_info = video_service.upload(
@@ -108,7 +111,8 @@ def run_video_youtube_pipeline(
                 title=video_title,
                 description=video_description,
                 tags=video_tags,
-                privacy_status=video_privacy
+                privacy_status=video_privacy,
+                made_for_kids=made_for_kids
             )
 
             if uploaded_video_info:
