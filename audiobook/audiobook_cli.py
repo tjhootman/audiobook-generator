@@ -31,7 +31,7 @@ from image_generation import (
 
 from video_processing import AudiobookVideoRenderer, AudiobookVideoService
 
-from youtube_upload import YouTubeAuthenticator, YouTubeUploader, YouTubeVideoService
+from youtube_upload import YouTubeOauthAuthenticator, GoogleAPIYouTubeUploader, YouTubeVideoService
 
 # Load .env variables
 load_dotenv()
@@ -61,28 +61,42 @@ def run_video_youtube_pipeline(
     """
     logging.info("Starting video and YouTube upload pipeline.")
 
+    # Initialize uploader and service as None
+    uploader = None
+    video_service = None
+
+    # --- YouTube Authenticaion ---
     try:
-        # Create a renderer instance with default settings
+        if upload_to_youtube:
+            logging.info("YouTube upload requested. Starting authentication...")
+            
+            client_secret_path = get_env_or_raise('YOUTUBE_CLIENT_SECRET_PATH', 'YouTube client secret JSON file path')
+            token_path = get_env_or_raise('YOUTUBE_TOKEN_PATH', 'YouTube authentication token file path')
+
+            authenticator = YouTubeOauthAuthenticator(
+                client_secret_path=client_secret_path,
+                token_path=token_path
+            )
+            authenticator.authenticate()
+            uploader = GoogleAPIYouTubeUploader(authenticator=authenticator)
+            video_service = YouTubeVideoService(uploader=uploader)
+            logging.info("YouTube authentication successful.")
+    
+        # --- Video Rendering ---
         renderer = AudiobookVideoRenderer(fps=24)
-        service = AudiobookVideoService(renderer)
+        video_creation_service = AudiobookVideoService(renderer)
 
         output_video_file = os.path.join(output_dir, f"{book_title}_audiobook.mp4")
         output_image_path = os.path.join(output_dir, cover_image_file)
 
-        # Correctly call the service's create_video method
-        service.create_video(
+        video_creation_service.create_video(
             image_path=output_image_path,
             audio_path=audio_file,
             output_video_path=output_video_file,
-            intro_video_path=None # No intro video for now
+            intro_video_path=None
         )
 
-        if upload_to_youtube:
-            # Upload video to YouTube Channel
-            authenticator = YouTubeAuthenticator()
-            uploader = YouTubeUploader(authenticator)
-            video_service = YouTubeVideoService(uploader)
-
+        if upload_to_youtube and video_service:
             video_title = f"{book_title} Audiobook"
             video_description = f"Audiobook version of '{book_title}' by {book_author}."
             video_tags = ["audiobook", "book", "literature", "classic"]
@@ -101,7 +115,8 @@ def run_video_youtube_pipeline(
                 logging.info("YouTube upload complete. Video details: %s", uploaded_video_info)
             else:
                 logging.error("Video upload failed. Check YouTube API settings and permissions.")
-        
+                return None
+    
         logging.info("Pipeline completed successfully.")
         return output_video_file
 
