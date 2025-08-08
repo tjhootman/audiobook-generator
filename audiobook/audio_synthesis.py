@@ -8,6 +8,7 @@ and dynamic voice parameter adjustment based on text characteristics.
 """
 import random
 import time
+import re
 import os
 import logging
 from typing import Protocol, List, Optional, Dict, Set, Any, Tuple
@@ -19,6 +20,18 @@ from google.cloud import language_v1
 from google.cloud import texttospeech
 from google.api_core.exceptions import ResourceExhausted, InternalServerError, ServiceUnavailable
 
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    logging.warning("psutil not installed. Low memory warnings will be disabled.")
+
+# --- Custom Exception ---
+
+class ChunkingError(Exception):
+    """Custom exception raised for fatal errors during text chunking."""
+    pass
 
 # --- Interface Definitions ---
 
@@ -175,7 +188,7 @@ class TextChunker(ABC):
     This is useful for preparing text for APIs that have character limits.
     """
     @abstractmethod
-    def chunk(self, text: str, max_chars_per_chunk: int = 4800) -> List[str]:
+    def chunk(self, text: str) -> List[str]:
         """
         Breaks down a single string of text into a list of smaller text chunks.
 
@@ -183,8 +196,6 @@ class TextChunker(ABC):
 
         Args:
             text (str): The large text string to be chunked.
-            max_chars_per_chunk (int, optional): The maximum character limit for each chunk.
-                                                 Defaults to 4800.
 
         Returns:
             List[str]: A list of text chunks.
@@ -252,7 +263,6 @@ class GoogleLanguageAnalyzer(LanguageAnalyzer):
     def analyze_language(self, text: str) -> str:
         """
         Detects the dominant language of the input text using Google Natural Language API.
-        ... (docstring) ...
         """
         if not text or len(text) < self.MIN_LENGTH:
             logging.info("Skipping language analysis due to short text length (< %d chars). Defaulting to 'en'.", self.MIN_LENGTH)
@@ -271,7 +281,6 @@ class GoogleLanguageAnalyzer(LanguageAnalyzer):
     def analyze_sentiment(self, text: str) -> Tuple[float, float]:
         """
         Analyzes the sentiment (emotional tone) of the input text using Google Natural Language API.
-        ... (docstring) ...
         """
         if not text or len(text) < self.MIN_LENGTH:
             logging.info("Skipping sentiment analysis due to short text length (< %d chars). Defaulting to neutral (0.0, 0.0).", self.MIN_LENGTH)
@@ -290,7 +299,6 @@ class GoogleLanguageAnalyzer(LanguageAnalyzer):
     def analyze_category(self, text: str) -> List[str]:
         """
         Classifies the content into predefined categories using Google Natural Language API.
-        ... (docstring) ...
         """
         if not text or len(text) < self.MIN_LENGTH:
             logging.info("Skipping category analysis due to short text length (< %d chars). Returning empty list.", self.MIN_LENGTH)
@@ -484,7 +492,7 @@ class GoogleTTSVoiceSelector(TTSVoiceSelector):
                     }
 
             # Prioritize voices by quality
-            voice_quality_order = ["Chirp", "Neural2", "Studio", "Wavenet", "Standard"]
+            voice_quality_order = ["Neural2", "Chirp", "Studio", "Wavenet", "Standard"]
             preferred_voices_list_order = []
             for voice_type in voice_quality_order:
                 voice_list = [v for v in voices_for_lang if voice_type in v.name]
@@ -603,13 +611,23 @@ class GoogleTTSSynthesizer(TTSSynthesizer):
     This class includes robust retry logic with exponential backoff for handling
     transient API errors like rate limits and server unavailability.
     """
-    # Initial delay for retry attempts in case of API errors.
-    INITIAL_RETRY_DELAY = 1
-    # Maximum number of retries for API calls.
-    MAX_API_RETRIES = 5
     # Proactive delay added before each API call to help prevent hitting rate limits.
     PROACTIVE_DELAY = 0.1
-    
+
+    def __init__(self, max_retries: int = 5, initial_delay: float = 1.0):
+        """
+        Initializes the synthesizer with configurable retry parameters.
+
+        Args:
+            max_retries (int, optional): Maximum number of times to retry an API call.
+                                         Defaults to 5.
+            initial_delay (float, optional): Initial delay in seconds before the first retry.
+                                             Defaults to 1.0.
+        """
+        self.MAX_API_RETRIES = max_retries
+        self.INITIAL_RETRY_DELAY = initial_delay
+
+
     def synthesize(self, text: str, voice_params: Dict[str, Any], output_filename: str, pitch: float = 0.0, speaking_rate: float = 1.0) -> bool:
         """
         Synthesizes speech from the input text using a specified Google Cloud TTS voice.
@@ -710,65 +728,90 @@ class DefaultTextChunker(TextChunker):
     An implementation of TextChunker that breaks text into chunks,
     prioritizing paragraph and then sentence integrity.
     """
-    def chunk(self, text: str, max_chars_per_chunk: int = 4800) -> List[str]:
+    MAX_BYTES_PER_CHUNK = 5000
+    MAX_BYTES_PER_SENTENCE = 900
+    
+    def _split_long_sentence(self, sentence: str) -> List[str]:
         """
-        Breaks down a single string of text into a list of smaller text chunks.
-
-        The chunking logic first attempts to chunk by paragraph. If a paragraph is
-        too large, it falls back to chunking by sentence.
-
-        Args:
-            text (str): The large text string to be chunked.
-            max_chars_per_chunk (int, optional): The maximum character limit for each chunk.
-                                                 Defaults to 4800.
-
-        Returns:
-            List[str]: A list of text chunks.
+        Splits a single sentence that is longer than the byte limit.
+        First attempts to split at punctuation, then falls back to a brute-force split.
         """
+        sentence_bytes = len(sentence.encode('utf-8'))
+        if sentence_bytes <= self.MAX_BYTES_PER_SENTENCE:
+            return [sentence]
+        
+        logging.warning(
+            "Sentence is too long (%d bytes > %d). Attempting to split.",
+            sentence_bytes, self.MAX_BYTES_PER_SENTENCE
+        )
+        
+        parts = re.split(r'([,.?!])', sentence)
+        sentence_parts = [''.join(parts[i:i+2]) for i in range(0, len(parts), 2)]
+        
+        if all(len(p.encode('utf-8')) <= self.MAX_BYTES_PER_SENTENCE for p in sentence_parts):
+            return sentence_parts
+            
+        logging.warning("Punctuation splitting failed. Falling back to byte-level split.")
+        
+        chunks = []
+        current_chunk = ""
+        for word in sentence.split():
+            if len((current_chunk + " " + word).encode('utf-8')) <= self.MAX_BYTES_PER_SENTENCE:
+                current_chunk += " " + word
+            else:
+                chunks.append(current_chunk.strip())
+                current_chunk = word
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+            
+        return chunks
+
+    def chunk(self, text: str) -> List[str]:
+        """Breaks down a single string of text into a list of smaller text chunks."""
         ensure_nltk_resource('tokenizers/punkt')
         
         chunks = []
         paragraphs = text.split('\n\n')
+        
         current_chunk = ""
 
-        try:
-            for para in paragraphs:
-                para = para.strip()
-                if not para:
-                    continue
-
-                # If the paragraph is too big to fit in the current chunk, finalize it
-                if len(current_chunk) + len(para) + 2 > max_chars_per_chunk and current_chunk:
-                    chunks.append(current_chunk.strip())
-                    current_chunk = ""
-
-                # If the paragraph itself is larger than the max chunk size, break it into sentences
-                if len(para) > max_chars_per_chunk:
-                    sentences = nltk.sent_tokenize(para)
-                    sentence_chunk = ""
-                    for sentence in sentences:
-                        # If adding a new sentence exceeds the max size, finalize the current sentence chunk
-                        if len(sentence_chunk) + len(sentence) + 1 > max_chars_per_chunk and sentence_chunk:
-                            chunks.append(sentence_chunk.strip())
-                            sentence_chunk = ""
-                        sentence_chunk += sentence + " "
-                    if sentence_chunk:
-                        chunks.append(sentence_chunk.strip())
-                else:
-                    # Otherwise, add the paragraph to the current chunk
-                    if current_chunk:
-                        current_chunk += "\n\n" + para
-                    else:
-                        current_chunk = para
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+                
+            # Use NLTK to split the paragraph into sentences
+            sentences = nltk.sent_tokenize(para)
             
-            if current_chunk:
-                chunks.append(current_chunk.strip())
+            for sentence in sentences:
+                sentence_parts = self._split_long_sentence(sentence)
+                
+                for s_part in sentence_parts:
+                    # Check if the sentence part fits in the current chunk
+                    # The `+ 1` accounts for the space between sentence parts
+                    if len((current_chunk + " " + s_part).encode('utf-8')) > self.MAX_BYTES_PER_CHUNK:
+                        if current_chunk:
+                            chunks.append(current_chunk.strip())
+                            current_chunk = s_part
+                        else:
+                            # This should not be reachable with the current logic, but is a fail-safe
+                            current_chunk = s_part
+                    else:
+                        if current_chunk:
+                            current_chunk += " " + s_part
+                        else:
+                            current_chunk = s_part
         
-        except Exception as e:
-            # Fallback for any unexpected errors during tokenization or chunking
-            print(f"An unexpected error occurred during text chunking: {e}")
-            chunks = [text] # Return the whole text as a single chunk if chunking fails
-
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+        
+        # Final sanity check
+        for i, chunk in enumerate(chunks):
+            chunk_bytes = len(chunk.encode('utf-8'))
+            if chunk_bytes > self.MAX_BYTES_PER_CHUNK:
+                logging.error("Chunk %d exceeds max byte limit (%d bytes). This indicates a chunking error.", i, chunk_bytes)
+                raise ChunkingError(f"Chunk {i} has exceeded the maximum byte limit.")
+        
         return chunks
 
 
@@ -812,6 +855,29 @@ def ensure_nltk_resource(resource: str,
         logging.error("An unexpected error occurred while checking for NLTK resource '%s': %s", resource, e)
         return False
 
+# --- Utility Function for Memory Check ---
+def warn_on_low_memory(threshold_percent: int = 10):
+    """
+    Checks the available system memory and logs a warning if it falls below a given threshold.
+
+    Args:
+        threshold_percent (int, optional): The low memory threshold as a percentage of total RAM.
+                                           Defaults to 10.
+    """
+    if not PSUTIL_AVAILABLE:
+        return
+        
+    try:
+        virtual_memory = psutil.virtual_memory()
+        available_percent = virtual_memory.available / virtual_memory.total * 100
+        
+        if available_percent < threshold_percent:
+            logging.warning(
+                "Low memory detected: Only %.2f%% of RAM is available. "
+                "The script may crash with an out-of-memory error.", available_percent
+            )
+    except Exception as e:
+        logging.debug("Could not check system memory. Error: %s", e)
 
 # -- High-level Service ---
 
@@ -820,7 +886,6 @@ class AudioSynthesisService:
     High-level service for analyzing text, selecting contextual voice parameters,
     chunking for TTS API, and synthesizing audio.
     """
-    MAX_CHARS_PER_TTS_CHUNK = 4800  # Google TTS limit
 
     def __init__(
         self,
@@ -871,13 +936,11 @@ class AudioSynthesisService:
         logging.info("Starting audio synthesis pipeline.")
 
         try:
-            # Chunking
-            chunks = self.chunker.chunk(text, max_chars_per_chunk=self.MAX_CHARS_PER_TTS_CHUNK)
+            chunks = self.chunker.chunk(text)
             if not chunks:
                 logging.error("No text chunks generated for audiobook.")
                 return None
             
-            # Analysis (use full text for consistent parameters)
             logging.info("Performing linguistic analysis on the full text...")
             lang_code = self.language_analyzer.analyze_language(text)
             sentiment_score, _ = self.language_analyzer.analyze_sentiment(text)
@@ -898,14 +961,16 @@ class AudioSynthesisService:
                 regional_code_from_text=regional_code,
             )
 
-            # Prepare temp dir for audio chunks
             if not temp_audio_dir:
                 temp_audio_dir = os.path.join(os.path.dirname(output_audio_path), "temp_audio_chunks")
             os.makedirs(temp_audio_dir, exist_ok=True)
             logging.info("Temporary audio directory created at '%s'.", temp_audio_dir)
 
-            audio_segments = []
+            combined_audio = AudioSegment.empty()
+            
             for i, chunk in enumerate(chunks):
+                warn_on_low_memory()
+
                 if not chunk.strip():
                     continue
                 temp_audio_file = os.path.join(temp_audio_dir, f"chunk_{i:04d}.mp3")
@@ -921,30 +986,25 @@ class AudioSynthesisService:
                 
                 if success:
                     try:
-                        audio_segments.append(AudioSegment.from_mp3(temp_audio_file))
+                        segment = AudioSegment.from_mp3(temp_audio_file)
+                        combined_audio += segment
+                        logging.debug("Appended chunk %d to the combined audio.", i + 1)
                     except (CouldntDecodeError, FileNotFoundError) as e:
                         logging.error("Error loading chunk %d from '%s': %s", i, temp_audio_file, e)
-                        # The synthesizer already logs the error, so we can just continue
                 else:
-                    # The synthesizer already logs the error, so we just log a high-level message
                     logging.warning("Failed to synthesize chunk %d. Saving failed chunk to a text file for review.", i)
                     with open(os.path.join(temp_audio_dir, f"failed_chunk_{i:04d}.txt"), "w", encoding="utf-8") as err_f:
                         err_f.write(chunk)
 
-            if not audio_segments:
+            if combined_audio.duration_seconds == 0:
                 logging.error("No audio segments were successfully generated for the audiobook. Exiting.")
                 return None
 
-            # Combine audio
             logging.info("Combining all audio segments into a single file...")
-            combined_audio = AudioSegment.empty()
-            for segment in audio_segments:
-                combined_audio += segment
             combined_audio.export(output_audio_path, format="mp3")
             
             logging.info("Audiobook created successfully: '%s'", output_audio_path)
             
-            # Clean up
             logging.info("Cleaning up temporary audio files in '%s'.", temp_audio_dir)
             for file_name in os.listdir(temp_audio_dir):
                 os.remove(os.path.join(temp_audio_dir, file_name))
@@ -955,3 +1015,4 @@ class AudioSynthesisService:
         except Exception as e:
             logging.error("An unexpected error occurred during audio synthesis: %s", e, exc_info=True)
             return None
+        

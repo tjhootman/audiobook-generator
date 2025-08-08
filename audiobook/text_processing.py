@@ -247,6 +247,7 @@ class GutenbergCleaner(TextCleaner):
 
         # Additional cleanup
         text = text.replace('_', ' ')
+        text = text.replace('*', '')
         text = re.sub(r' {2,}', ' ', text).strip()
 
         return text
