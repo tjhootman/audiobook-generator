@@ -492,7 +492,7 @@ class GoogleTTSVoiceSelector(TTSVoiceSelector):
                     }
 
             # Prioritize voices by quality
-            voice_quality_order = ["Neural2", "Chirp", "Studio", "Wavenet", "Standard"]
+            voice_quality_order = ["Chirp", "Studio", "Neural2", "Wavenet", "Standard"]
             preferred_voices_list_order = []
             for voice_type in voice_quality_order:
                 voice_list = [v for v in voices_for_lang if voice_type in v.name]

@@ -2,7 +2,7 @@
 import os
 import logging
 import sys
-from typing import Optional, Any, Dict, List, Tuple
+from typing import Optional
 from dotenv import load_dotenv
 
 # --- Abstractions and implementations for Text Processing ---
@@ -13,7 +13,6 @@ from text_processing import (
     FileTextExporter,
     TextProcessingService,
     LocalFileSource,
-    TextCleaner,
     get_user_book_url,
     setup_output_directory,
     get_user_local_file
@@ -25,12 +24,7 @@ from audio_synthesis import (
     GoogleTTSVoiceSelector,
     GoogleTTSSynthesizer,
     UserPreference,
-    AudioSynthesisService,
-    TTSVoiceSelector,
-    TTSSynthesizer,
-    LanguageAnalyzer,
-    UserPreferenceProvider,
-    DefaultTextChunker,
+    AudioSynthesisService
 )
 
 # --- Abstractions and implementations for Image Generation ---
@@ -39,26 +33,20 @@ from image_generation import (
     VertexAIImageGenerator,
     PILImageSaver,
     CoverImageService,
-    get_env_or_raise,
-    ImageGenerator,
-    ImageSaver,
-    Authenticator,
+    get_env_or_raise
 )
 
 # --- Abstractions and implementations for Video Processing ---
 from video_processing import (
     AudiobookVideoRenderer,
-    AudiobookVideoService,
-    VideoRenderer
+    AudiobookVideoService
 )
 
 # --- Abstractions and implementations for YouTube Upload ---
 from youtube_upload import (
     YouTubeOauthAuthenticator,
     GoogleAPIYouTubeUploader,
-    YouTubeVideoService,
-    YouTubeAuthenticator,
-    YouTubeUploader,
+    YouTubeVideoService
 )
 
 # Load .env variables
@@ -126,6 +114,7 @@ def run_video_youtube_pipeline(
             video_description = f"Audiobook version of '{book_title}' by {book_author}."
             video_tags = ["audiobook", "book", "literature", "classic"]
             video_privacy = "public"
+            made_for_kids = False
             
             logging.info("Attempting to upload video to YouTube...")
             uploaded_video_info = video_service.upload(
@@ -152,7 +141,23 @@ def run_video_youtube_pipeline(
     
 
 def generate_full_audiobook(output_base_dir="audiobook_output"):
+    """
+    Orchestrates the entire process of creating an audiobook from a text source.
+
+    This includes:
+    - User input for source selection (URL or local file) and preferences.
+    - Text processing (downloading, cleaning, metadata extraction).
+    - Audiobook synthesis from text chunks.
+    - Optional video creation and YouTube upload.
+
+    Args:
+        output_base_dir (str, optional): The base directory for all output files.
+                                         Defaults to "audiobook_output".
     
+    Returns:
+        Optional[str]: The path to the final audiobook video file if created, otherwise None.
+    """
+
     logging.info("Starting full audiobook generation pipeline.")
 
     try:
@@ -232,22 +237,22 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
         logging.info("Book output directory: %s", book_output_dir)
 
         # --- Image Generation ---
-        # PROJECT_ID = get_env_or_raise('GOOGLE_CLOUD_PROJECT_ID', 'Google Cloud Project ID')
-        # LOCATION = get_env_or_raise('GOOGLE_CLOUD_LOCATION', 'Google Cloud Location')
+        PROJECT_ID = get_env_or_raise('GOOGLE_CLOUD_PROJECT_ID', 'Google Cloud Project ID')
+        LOCATION = get_env_or_raise('GOOGLE_CLOUD_LOCATION', 'Google Cloud Location')
 
-        # google_authenticator = GoogleAuthenticator(project=PROJECT_ID, location=LOCATION)
-        # image_generator = VertexAIImageGenerator(project_id=PROJECT_ID, location=LOCATION)
-        # image_saver = PILImageSaver()
+        google_authenticator = GoogleAuthenticator(project=PROJECT_ID, location=LOCATION)
+        image_generator = VertexAIImageGenerator(project_id=PROJECT_ID, location=LOCATION)
+        image_saver = PILImageSaver()
 
-        # cover_image_service = CoverImageService(
-        #     authenticator=google_authenticator,
-        #     image_generator=image_generator,
-        #     image_saver=image_saver,
-        # )
+        cover_image_service = CoverImageService(
+            authenticator=google_authenticator,
+            image_generator=image_generator,
+            image_saver=image_saver,
+        )
 
-        # prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook."
-        # output_image_file = f"{sanitized_book_title}.png"
-        # cover_image_service.create_cover_image(prompt, book_output_dir, output_image_file)
+        prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook."
+        output_image_file = f"{sanitized_book_title}.png"
+        cover_image_service.create_cover_image(prompt, book_output_dir, output_image_file)
 
         # --- Audiobook Synthesis ---
         language_analyzer = GoogleLanguageAnalyzer()
