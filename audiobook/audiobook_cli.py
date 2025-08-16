@@ -2,6 +2,7 @@
 import os
 import logging
 import sys
+import re
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -63,32 +64,58 @@ logging.basicConfig(
 
 def run_video_youtube_pipeline(
     audio_file: str,
-    cover_image_file: str,
     book_title: str,
     book_author: str,
     output_dir: str,
+    project_id: str,
+    location: str,
     upload_to_youtube: bool = True,
     made_for_kids: bool = False
 ) -> Optional[str]:
     """
     Orchestrates the creation of an audiobook video and its optional upload to YouTube.
+
+    Args:
+        audio_file (str): Path to the final audiobook audio file.
+        book_title (str): The title of the book.
+        book_author (str): The author of the book.
+        output_dir (str): The output directory for the video file.
+        project_id (str): The Google Cloud Project ID for image generation.
+        location (str): The Google Cloud region for image generation.
+        upload_to_youtube (bool, optional): Whether to upload the video to YouTube.
+                                            Defaults to True.
+        made_for_kids (bool, optional): Whether the video is made for kids.
+                                        Defaults to False.
+
+    Returns:
+        Optional[str]: The path to the created video file, or None if the process fails.
     """
     logging.info("Starting video and YouTube upload pipeline.")
     
-    uploader = None
-    video_service = None
-
     try:
+        # --- Image Generation ---
+        logging.info("Starting cover image generation process.")
+        google_authenticator = GoogleAuthenticator(project=project_id, location=location)
+        image_generator = VertexAIImageGenerator(project_id=project_id, location=location)
+        image_saver = PILImageSaver()
+        cover_image_service = CoverImageService(
+            authenticator=google_authenticator,
+            image_generator=image_generator,
+            image_saver=image_saver,
+        )
+        prompt = f"Generate a cover image for {book_author}'s '{book_title}' audiobook"
+        output_image_file = f"{re.sub(r'[^a-zA-Z0-9]', '_', book_title)}.png"
+        output_image_path = cover_image_service.create_cover_image(prompt, output_dir, output_image_file)
+        logging.info("Cover image saved to: %s", output_image_path)
+    
+        # --- YouTube Authentication (if needed) ---
+        uploader = None
+        video_service = None
         if upload_to_youtube:
             logging.info("YouTube upload requested. Starting authentication...")
-            
             client_secret_path = get_env_or_raise('YOUTUBE_CLIENT_SECRET_PATH', 'YouTube client secret JSON file path')
             token_path = get_env_or_raise('YOUTUBE_TOKEN_PATH', 'YouTube authentication token file path')
-
-            authenticator = YouTubeOauthAuthenticator(
-                client_secret_path=client_secret_path,
-                token_path=token_path
-            )
+            authenticator = YouTubeOauthAuthenticator(client_secret_path=client_secret_path, token_path=token_path)
             authenticator.authenticate()
             uploader = GoogleAPIYouTubeUploader(authenticator=authenticator)
             video_service = YouTubeVideoService(uploader=uploader)
@@ -97,10 +124,7 @@ def run_video_youtube_pipeline(
         # --- Video Rendering ---
         renderer = AudiobookVideoRenderer(fps=24)
         video_creation_service = AudiobookVideoService(renderer)
-
-        output_video_file = os.path.join(output_dir, f"{book_title}_audiobook.mp4")
-        output_image_path = os.path.join(output_dir, cover_image_file)
-
+        output_video_file = os.path.join(output_dir, f"{re.sub(r'[^a-zA-Z0-9]', '_', book_title)}_audiobook.mp4")
         video_creation_service.create_video(
             image_path=output_image_path,
             audio_path=audio_file,
@@ -114,8 +138,6 @@ def run_video_youtube_pipeline(
             video_description = f"Audiobook version of '{book_title}' by {book_author}."
             video_tags = ["audiobook", "book", "literature", "classic"]
             video_privacy = "public"
-            made_for_kids = False
-            
             logging.info("Attempting to upload video to YouTube...")
             uploaded_video_info = video_service.upload(
                 file_path=output_video_file,
@@ -125,7 +147,6 @@ def run_video_youtube_pipeline(
                 privacy_status=video_privacy,
                 made_for_kids=made_for_kids
             )
-
             if uploaded_video_info:
                 logging.info("YouTube upload complete. Video details: %s", uploaded_video_info)
             else:
@@ -138,7 +159,7 @@ def run_video_youtube_pipeline(
     except Exception as e:
         logging.error("An error occurred in the video/YouTube pipeline: %s", e, exc_info=True)
         return None
-    
+
 
 def generate_full_audiobook(output_base_dir="audiobook_output"):
     """
@@ -197,7 +218,8 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
         user_gender_preference = user_pref_provider.get_gender_preference()
 
         do_video = input("Would you like to create a video and upload to YouTube? (y/n): ").strip().lower() == "y"
-        
+        made_for_kids = False
+
         # --- Text Processing ---
         exporter = FileTextExporter()
         text_processor = TextProcessingService(
@@ -236,23 +258,23 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
         setup_output_directory(book_output_dir)
         logging.info("Book output directory: %s", book_output_dir)
 
-        # --- Image Generation ---
-        PROJECT_ID = get_env_or_raise('GOOGLE_CLOUD_PROJECT_ID', 'Google Cloud Project ID')
-        LOCATION = get_env_or_raise('GOOGLE_CLOUD_LOCATION', 'Google Cloud Location')
+        # # --- Image Generation ---
+        # PROJECT_ID = get_env_or_raise('GOOGLE_CLOUD_PROJECT_ID', 'Google Cloud Project ID')
+        # LOCATION = get_env_or_raise('GOOGLE_CLOUD_LOCATION', 'Google Cloud Location')
 
-        google_authenticator = GoogleAuthenticator(project=PROJECT_ID, location=LOCATION)
-        image_generator = VertexAIImageGenerator(project_id=PROJECT_ID, location=LOCATION)
-        image_saver = PILImageSaver()
+        # google_authenticator = GoogleAuthenticator(project=PROJECT_ID, location=LOCATION)
+        # image_generator = VertexAIImageGenerator(project_id=PROJECT_ID, location=LOCATION)
+        # image_saver = PILImageSaver()
 
-        cover_image_service = CoverImageService(
-            authenticator=google_authenticator,
-            image_generator=image_generator,
-            image_saver=image_saver,
-        )
+        # cover_image_service = CoverImageService(
+        #     authenticator=google_authenticator,
+        #     image_generator=image_generator,
+        #     image_saver=image_saver,
+        # )
 
-        prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook."
-        output_image_file = f"{sanitized_book_title}.png"
-        cover_image_service.create_cover_image(prompt, book_output_dir, output_image_file)
+        # prompt = f"Generate a cover image for {book_author}'s '{raw_book_title}' audiobook."
+        # output_image_file = f"{sanitized_book_title}.png"
+        # cover_image_service.create_cover_image(prompt, book_output_dir, output_image_file)
 
         # --- Audiobook Synthesis ---
         language_analyzer = GoogleLanguageAnalyzer()
@@ -279,14 +301,19 @@ def generate_full_audiobook(output_base_dir="audiobook_output"):
             return
 
         if do_video:
+            # Get the API configs for the video pipeline
+            PROJECT_ID = get_env_or_raise('GOOGLE_CLOUD_PROJECT_ID', 'Google Cloud Project ID')
+            LOCATION = get_env_or_raise('GOOGLE_CLOUD_LOCATION', 'Google Cloud Location')
+            
             run_video_youtube_pipeline(
                 audio_file=output_audio_file,
-                cover_image_file=output_image_file,
                 book_title=raw_book_title,
                 book_author=book_author,
                 output_dir=book_output_dir,
+                project_id=PROJECT_ID,
+                location=LOCATION,
                 upload_to_youtube=True,
-                made_for_kids=False
+                made_for_kids=made_for_kids
             )
         else:
             logging.info("Skipping video generation and YouTube upload.")
